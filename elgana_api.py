@@ -1,24 +1,12 @@
 # -*- coding: utf-8 -*-
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 import sqlite3
-import re
 import os
 import json
 import requests
-from datetime import datetime, timedelta
-import subprocess
-import filetype
-import boto3
-from botocore.exceptions import NoCredentialsError
-from PIL import Image
-import piexif
-from io import BytesIO
-import base64
 import traceback
-import asyncio
 from dotenv import load_dotenv
 
-import tmp
 
 load_dotenv()
 
