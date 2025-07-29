@@ -21,9 +21,9 @@
 	let currentInfoWindow: google.maps.InfoWindow | null = null;
 	let modalImages: { image_url: string; deleted: string }[] = [];
 	let modalIndex = 0;
-	let modalMsgId: number | null = null;
-	let locations: {
-		msg_id: number;
+        let modalMsgId: string | null = null;
+        let locations: {
+                msg_id: string;
 		latitude: number;
 		longitude: number;
 		instruction: string;
@@ -46,17 +46,17 @@
 	}[] = [];
 
 	// <msg_id, details要素> を保存するマップ
-	const accMap: Map<number, HTMLDetailsElement> = new Map();
+        const accMap: Map<string, HTMLDetailsElement> = new Map();
 
 	// details 要素が生成されるたびに登録
-	function regAcc(el: HTMLDetailsElement, id: number) {
-		accMap.set(id, el);
-	}
+        function regAcc(el: HTMLDetailsElement, id: string) {
+                accMap.set(id, el);
+        }
 
 	onMount(() => {
 		// カスタムイベントを受け取って対応カードを開く
-		window.addEventListener("open-acc", (e: Event) => {
-			const id = (e as CustomEvent<number>).detail;
+        window.addEventListener("open-acc", (e: Event) => {
+                const id = (e as CustomEvent<string>).detail;
 			const acc = accMap.get(id);
 			if (acc) {
 				acc.open = true; // アコーディオンを開く
@@ -127,7 +127,7 @@
 
 	// マーカーの生成
         function placeMarker(loc: {
-                msg_id: number;
+                msg_id: string;
                 latitude: number;
                 longitude: number;
                 instruction: string;
@@ -215,15 +215,15 @@
 			map!.panTo(marker.position as google.maps.LatLng);
 		});
 	}
-	function register(node: HTMLDetailsElement, id: number) {
-		accMap.set(id, node); // 生成時に登録
-		return {
-			destroy() {
-				accMap.delete(id); // 要素が消えたら解除
-			},
+        function register(node: HTMLDetailsElement, id: string) {
+                accMap.set(id, node); // 生成時に登録
+                return {
+                        destroy() {
+                                accMap.delete(id); // 要素が消えたら解除
+                        },
 		};
 	}
-	function completedRegist_on(msgId: number, btn: HTMLButtonElement) {
+        function completedRegist_on(msgId: string, btn: HTMLButtonElement) {
 		fetch(`${API}/completed`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -248,7 +248,7 @@
 
 	// 削除ボタンが押された時の処理
 	// spot_infoの deleted フラグを立てる
-	function daleteFlg_on(msgId: number, imgUrl: string, deleted: string) {
+        function daleteFlg_on(msgId: string, imgUrl: string, deleted: string) {
 		// 本番環境では、S3の画像URLを直接使えばいい
 
 		fetch(`${API}/deleted`, {
@@ -295,7 +295,7 @@
         function openModal(
                 images: { image_url: string; deleted: string }[],
                 url: string,
-                id: number,
+                id: string,
         ) {
                 modalImages = images;
                 modalIndex = images.findIndex((img) => img.image_url === url);
