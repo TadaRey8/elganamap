@@ -1,4 +1,5 @@
 <script lang="ts">
+    /// <reference types="@sveltejs/kit" />
     import { goto } from "$app/navigation";
 </script>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-	// 環境変数の設定
+        /// <reference types="@sveltejs/kit" />
+        // 環境変数の設定
 	import {
 		PUBLIC_GOOGLE_MAPS_API_KEY,
 		PUBLIC_GOOGLE_MAPS_MAPID,
@@ -125,13 +126,14 @@
 	}
 
 	// マーカーの生成
-	function placeMarker(loc: {
-		msg_id: number;
-		latitude: number;
-		longitude: number;
-		instruction: string;
-		status: string;
-		before_images: {
+        function placeMarker(loc: {
+                msg_id: number;
+                latitude: number;
+                longitude: number;
+                instruction: string;
+                status: string;
+                urgency: keyof typeof urgencyIcon | string;
+                before_images: {
 			hight: number;
 			width: number;
 			depth: number;
@@ -151,7 +153,7 @@
 		const status = normalizeStatus(loc.status);
 
 		// 緊急度がなかった時のマーカースタイル
-		const style = urgencyIcon[loc.urgency] ?? {
+                const style = urgencyIcon[loc.urgency as keyof typeof urgencyIcon] ?? {
 			bg: "#777",
 			borderColor: "#fff",
 			glyph: "済",
@@ -273,26 +275,33 @@
 			.catch((e) => console.error("データ取得失敗", e));
 	}
 
-	function reloadLocations() {
-		fetch(`${API}/get_locations`)
-			.then((r) => r.json())
-			.then((data) => {
-				locations = data;
-			})
-			.catch((e) => console.error("再読み込み失敗", e));
-	}
-	// ② サムネイルをクリックしたら呼ぶ
-	function openModal(
-		images: { image_url: string; deleted: string }[],
-		url: string,
-		id: number,
-	) {
-		const visible = images.filter((img) => img.deleted === "0");
-		modalImages = visible;
-		modalIndex = visible.findIndex((img) => img.image_url === url);
-		if (modalIndex < 0) modalIndex = 0;
-		modalMsgId = id;
-	}
+        function reloadLocations() {
+                fetch(`${API}/get_locations`)
+                        .then((r) => r.json())
+                        .then((data) => {
+                                locations = data;
+                        })
+                        .catch((e) => console.error("再読み込み失敗", e));
+        }
+
+        function firstVisible(images: { image_url: string; deleted: string }[]) {
+                return images.find((img) => img.deleted === "0") ?? null;
+        }
+
+        function visibleCount(images: { image_url: string; deleted: string }[]) {
+                return images.filter((img) => img.deleted === "0").length;
+        }
+        // ② サムネイルをクリックしたら呼ぶ
+        function openModal(
+                images: { image_url: string; deleted: string }[],
+                url: string,
+                id: number,
+        ) {
+                modalImages = images;
+                modalIndex = images.findIndex((img) => img.image_url === url);
+                if (modalIndex < 0) modalIndex = 0;
+                modalMsgId = id;
+        }
 	// ③ モーダル背景 or ×クリックで閉じる
 	function closeModal() {
 		modalImages = [];
@@ -321,108 +330,71 @@
 					</p>
 					<p class="photo-block">
 						対応前写真：<br />
-						{#if loc.before_images.length > 0}
-							{#each loc.before_images as img, i (img.image_url)}
-								<span class="img-wrapper">
-									{#if img.deleted === "1"}
-										<span class="no-photo">
-											画像が非表示にされています<br />
-										</span>
-										<button
-											class="delete-img"
-											on:click={() =>
-												daleteFlg_on(
-													loc.msg_id,
-													img.image_url,
-													img.deleted,
-												)}
-										>
-											表示
-										</button><br />
-									{:else}
-										<img
-											class="photo"
-											src={img.image_url}
-											alt={`対応前 ${i + 1}`}
-											on:click={() =>
-												openModal(
-													loc.before_images,
-													img.image_url,
-													loc.msg_id,
-												)}
-										/>
-										<button
-											class="delete-img"
-											on:click={() =>
-												daleteFlg_on(
-													loc.msg_id,
-													img.image_url,
-													img.deleted,
-												)}
-										>
-											非表示
-										</button><br />
-									{/if}
-								</span>
-							{/each}
-						{:else}
-							<span class="thumb-container no-image"
-								>no image</span
-							>
-						{/if}
+                                                {#if loc.before_images.length > 0}
+                                                        {#if firstVisible(loc.before_images)}
+                                                                <span
+                                                                        class="thumb-container"
+                                                                        on:click={() =>
+                                                                                openModal(
+                                                                                        loc.before_images,
+                                                                                        firstVisible(loc.before_images)!.image_url,
+                                                                                        loc.msg_id,
+                                                                                )}
+                                                                >
+                                                                        <img
+                                                                                class="thumb"
+                                                                                src={firstVisible(loc.before_images)!.image_url}
+                                                                                alt="対応前サムネイル"
+                                                                        />
+                                                                        {#if visibleCount(loc.before_images) > 1}
+                                                                                <span class="thumb-more">…</span>
+                                                                        {/if}
+                                                                </span>
+                                                        {:else}
+                                                                <span
+                                                                        class="thumb-container no-image"
+                                                                        on:click={() => openModal(loc.before_images, '', loc.msg_id)}
+                                                                >
+                                                                        no image
+                                                                </span>
+                                                        {/if}
+                                                {:else}
+        <span class="thumb-container no-image">no image</span>
+{/if}
 					</p>
 					<p class="photo-block">
 						対応後写真：<br />
-						{#if loc.after_images.length > 0}
-							{#each loc.after_images as img, j (img.image_url)}
-								<span class="img-wrapper">
-									{#if img.deleted === "1"}
-										<span class="no-photo">
-											画像が非表示にされています<br />
-										</span>
-										<button
-											class="delete-img"
-											on:click={() =>
-												daleteFlg_on(
-													loc.msg_id,
-													img.image_url,
-													img.deleted,
-												)}
-										>
-											表示
-										</button><br />
-									{:else}
-										<img
-											class="photo"
-											src={img.image_url}
-											alt={`対応後 ${j + 1}`}
-											on:click={() =>
-												openModal(
-													loc.after_images,
-													img.image_url,
-													loc.msg_id,
-												)}
-										/>
-										<button
-											class="delete-img"
-											on:click={() =>
-												daleteFlg_on(
-													loc.msg_id,
-													img.image_url,
-													img.deleted,
-												)}
-										>
-											非表示にする
-										</button>
-									{/if}
-								</span>
-							{/each}
-						{:else}
-							<span class="thumb-container no-image"
-								>no image</span
-							>
-						{/if}<br />
-						<br />
+                                                {#if loc.after_images.length > 0}
+                                                        {#if firstVisible(loc.after_images)}
+                                                                <span
+                                                                        class="thumb-container"
+                                                                        on:click={() =>
+                                                                                openModal(
+                                                                                        loc.after_images,
+                                                                                        firstVisible(loc.after_images)!.image_url,
+                                                                                        loc.msg_id,
+                                                                                )}
+                                                                >
+                                                                        <img
+                                                                                class="thumb"
+                                                                                src={firstVisible(loc.after_images)!.image_url}
+                                                                                alt="対応後サムネイル"
+                                                                        />
+                                                                        {#if visibleCount(loc.after_images) > 1}
+                                                                                <span class="thumb-more">…</span>
+                                                                        {/if}
+                                                                </span>
+                                                        {:else}
+                                                                <span
+                                                                        class="thumb-container no-image"
+                                                                        on:click={() => openModal(loc.after_images, '', loc.msg_id)}
+                                                                >
+                                                                        no image
+                                                                </span>
+                                                        {/if}
+                                                {:else}
+                                                        <span class="thumb-container no-image">no image</span>
+                                                {/if}
 						{#if loc.after_images.length > 0}
 							{#if loc.completed === null}
 								<button
@@ -467,47 +439,55 @@
 				on:click={closeModal}
 				aria-label="閉じる">×</button
 			>
-			{#if modalImages.length === 1}
-				<img src={modalImages[0].image_url} alt="拡大画像" />
-			{:else}
-				<Splide
-					hasTrack={false}
-					options={{
-						type: "loop",
-						role: "region",
-						pagination: true,
-						perPage: 1,
-						perMove: 1,
-						arrows: true,
-						drag: true,
-					}}
-					on:move={(e) => (modalIndex = e.detail.newIndex)}
-					bind:currentSlide={modalIndex}
+                        {#if modalImages.length === 1}
+                                {#if modalImages[0].deleted === "1"}
+                                        <span class="hidden-message">画像は非表示になっています</span>
+                                {:else}
+                                        <img src={modalImages[0].image_url} alt="拡大画像" />
+                                {/if}
+                        {:else}
+                                <Splide
+                                        hasTrack={false}
+                                        options={{
+                                                type: "loop",
+                                                role: "region",
+                                                pagination: true,
+                                                perPage: 1,
+                                                perMove: 1,
+                                                arrows: true,
+                                                drag: true,
+                                        }}
+                                        bind:currentSlide={modalIndex}
 				>
 					<SplideTrack>
-						{#each modalImages as img}
-							<SplideSlide>
-								<img src={img.image_url} alt="拡大画像" />
-							</SplideSlide>
-						{/each}
-					</SplideTrack>
-					<div class="splide__arrows"></div>
-					<div class="splide__pagination"></div>
-				</Splide>
-			{/if}
-			<button
-				class="modal-delete"
-				on:click={() =>
-					daleteFlg_on(
-						modalMsgId!,
-						modalImages[modalIndex].image_url,
-						modalImages[modalIndex].deleted,
-					)}
-			>
-				{modalImages[modalIndex].deleted === "1" ? "表示" : "非表示"}
-			</button>
-		</div>
-	</div>
+                                                {#each modalImages as img}
+                                                        <SplideSlide>
+                                                                {#if img.deleted === "1"}
+                                                                        <span class="hidden-message">画像は非表示になっています</span>
+                                                                {:else}
+                                                                        <img src={img.image_url} alt="拡大画像" />
+                                                                {/if}
+                                                        </SplideSlide>
+                                                {/each}
+                                        </SplideTrack>
+                                        <div class="splide__arrows"></div>
+                                        <div class="splide__pagination"></div>
+                                </Splide>
+                        {/if}
+                </div>
+                <button
+                        class="modal-delete"
+                        aria-pressed={modalImages[modalIndex]?.deleted === "1"}
+                        on:click={() => {
+                                const img = modalImages[modalIndex];
+                                if (!img || modalMsgId === null) return;
+                                closeModal();
+                                daleteFlg_on(modalMsgId, img.image_url, img.deleted);
+                        }}
+                >
+                        {modalImages[modalIndex]?.deleted === "1" ? "表示" : "非表示"}
+                </button>
+        </div>
 {/if}
 
 <style>
@@ -766,22 +746,30 @@
 		justify-content: center;
 		align-items: center;
 	}
-	:global(.splide__slide img) {
-		display: block;
-		margin: auto;
-	}
+        :global(.splide__slide img) {
+                display: block;
+                margin: auto;
+        }
 
-	.modal-delete {
-		position: absolute;
-		bottom: 8px;
-		left: 8px;
-		padding: 4px 10px;
-		border: none;
-		border-radius: 4px;
-		background: #ff3939;
-		color: #fff;
-		cursor: pointer;
-	}
+        .hidden-message {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 60vh;
+                color: #333;
+        }
+
+        .modal-delete {
+                position: fixed;
+                bottom: 16px;
+                left: 16px;
+                padding: 4px 10px;
+                border: none;
+                border-radius: 4px;
+                background: #ff3939;
+                color: #fff;
+                cursor: pointer;
+        }
 
 	.status {
 		color: #000000;

@@ -1,6 +1,7 @@
 <script lang="ts">
-	// JS／TS どちらでも可
-	import { goto } from "$app/navigation"; // ← ボタン遷移用 (任意)
+        /// <reference types="@sveltejs/kit" />
+        // JS／TS どちらでも可
+        import { goto } from "$app/navigation"; // ← ボタン遷移用 (任意)
 </script>
 
 <main>
