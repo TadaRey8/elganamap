@@ -1,0 +1,15 @@
+name: elganamap
+description: BLE 位置情報マップ + Flask API
+# Codex にポートを認識させる
+ports:
+  - port: 5000
+    description: Flask API
+  - port: 5173
+    description: Vite dev server
+    visibility: public   # ブラウザから直接開きたい場合
+
+# ここが実際に動くコマンド
+command: >
+  npx concurrently -n BACKEND,FRONTEND -p "[{name}]" 
+  "python elgana_api.py" 
+  "vite dev --host 0.0.0.0 --port 5173"
