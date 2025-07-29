@@ -21,6 +21,24 @@
 	let modalImages: { image_url: string; deleted: string }[] = [];
 	let modalIndex = 0;
 	let modalMsgId: number | null = null;
+	let currentImg: { image_url: string; deleted: string } | null = null;
+
+	/** クローンスライドを考慮して index と画像を同期 */
+	function updateCurrentImg(idx: number) {
+		if (!modalImages.length) {
+			currentImg = null;
+			modalIndex = 0;
+			return;
+		}
+		const norm =
+			((idx % modalImages.length) + modalImages.length) %
+			modalImages.length;
+		modalIndex = norm; // Splide の currentSlide も更新
+		currentImg = modalImages[norm];
+	}
+
+	// modalIndex または modalImages が変わる度に発火
+	$: updateCurrentImg(modalIndex);
 	let locations: {
 		msg_id: number;
 		latitude: number;
@@ -264,12 +282,19 @@
 				if (!res.ok) throw new Error("画像削除に失敗しました");
 				return res.json();
 			})
-			.then(() => fetch(`${API}/get_locations`))
-			.then((r) => r.json())
-			.then((newLocs) => {
-				locations = newLocs; // 再代入して自動再描画の処理
-				console.log("画像の表示/非表示を更新しました");
+			.then(() => {
+				/* ---- 1) フロント側の optimistic update ---- */
+				modalImages = modalImages.map((img) =>
+					img.image_url === imgUrl
+						? { ...img, deleted: deleted === "1" ? "0" : "1" }
+						: img,
+				);
+				updateCurrentImg(modalIndex);
+				/* ---- 2) サーバー最新を取得して整合 ---- */
+				return fetch(`${API}/get_locations`);
 			})
+			.then((r) => r.json())
+			.then((newLocs) => (locations = newLocs))
 			.catch((e) => console.error("データ取得失敗", e));
 	}
 
@@ -296,14 +321,15 @@
 		id: number,
 	) {
 		modalImages = images;
-		modalIndex = images.findIndex((img) => img.image_url === url);
-		if (modalIndex < 0) modalIndex = 0;
 		modalMsgId = id;
+		const found = images.findIndex((img) => img.image_url === url);
+		updateCurrentImg(found >= 0 ? found : 0);
 	}
 	// ③ モーダル背景 or ×クリックで閉じる
 	function closeModal() {
 		modalImages = [];
 		modalMsgId = null;
+		modalIndex = 0;
 	}
 </script>
 
@@ -471,7 +497,7 @@
 						arrows: true,
 						drag: true,
 					}}
-					on:move={(e) => (modalIndex = e.detail.newIndex)}
+					on:move={(e) => updateCurrentImg(e.detail.newIndex)}
 					bind:currentSlide={modalIndex}
 				>
 					<SplideTrack>
@@ -492,17 +518,21 @@
 				</Splide>
 			{/if}
 		</div>
+		<!-- ボタンは常に描画。currentImg が無い瞬間は disabled -->
 		<button
 			class="modal-delete"
-			aria-pressed={modalImages[modalIndex].deleted === "1"}
-			on:click={() =>
+			disabled={!currentImg}
+			aria-pressed={currentImg?.deleted === "1"}
+			on:click|stopPropagation={() => {
+				if (!currentImg) return;
 				daleteFlg_on(
 					modalMsgId!,
-					modalImages[modalIndex].image_url,
-					modalImages[modalIndex].deleted,
-				)}
+					currentImg.image_url,
+					currentImg.deleted,
+				);
+			}}
 		>
-			{modalImages[modalIndex].deleted === "1" ? "表示" : "非表示"}
+			{currentImg?.deleted === "1" ? "表示" : "非表示"}
 		</button>
 	</div>
 {/if}
