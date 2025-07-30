@@ -18,10 +18,27 @@
 
 	let map: google.maps.Map | null = null;
 	let currentInfoWindow: google.maps.InfoWindow | null = null;
-	let modalImages: { image_url: string; deleted: string }[] = [];
+	/** 画像情報（discovery / before / after 共通） */
+	type ImageRec = {
+		/* 寸法 or 見積 ― スポットごとに存在可 */
+		height?: number;
+		width?: number;
+		depth?: number;
+		cost?: number;
+		term?: string;
+		/* 画像自体 */
+		image_url: string;
+		deleted: string;
+		/* 投稿者情報 ― 編集画面などで利用可 */
+		user_name?: string;
+		org?: string;
+		email_address?: string;
+	};
+
+	let modalImages: ImageRec[] = [];
 	let modalIndex = 0;
 	let modalMsgId: number | null = null;
-	let currentImg: { image_url: string; deleted: string } | null = null;
+	let currentImg: ImageRec | null = null;
 
 	/** クローンスライドを考慮して index と画像を同期 */
 	function updateCurrentImg(idx: number) {
@@ -48,18 +65,11 @@
 		urgency: string;
 		customer_info: string;
 		remarks: string;
-		completed: string;
-		before_images: {
-			hight: number;
-			width: number;
-			depth: number;
-			image_url: string;
-			deleted: string;
-		}[];
-		after_images: {
-			image_url: string;
-			deleted: string;
-		}[];
+		completed: string | null;
+		signal: string;
+		discovery_images: ImageRec[];
+		before_images: ImageRec[];
+		after_images: ImageRec[];
 	}[] = [];
 
 	// <msg_id, details要素> を保存するマップ
@@ -69,6 +79,20 @@
 	function regAcc(el: HTMLDetailsElement, id: number) {
 		accMap.set(id, el);
 	}
+
+	// コンポーネントが最初にDOMにレンダリングされた後に処理が走る
+	// Google Maps API スクリプトを読み込む
+	onMount(() => {
+		const s = document.createElement("script");
+		s.src =
+			`https://maps.googleapis.com/maps/api/js` +
+			`?key=${PUBLIC_GOOGLE_MAPS_API_KEY}` +
+			`&callback=initMap&libraries=marker`;
+		s.async = true;
+		s.defer = true;
+		(window as any).initMap = initMap;
+		document.body.appendChild(s);
+	});
 
 	onMount(() => {
 		// カスタムイベントを受け取って対応カードを開く
@@ -88,24 +112,6 @@
 		中: { bg: "#FBC02D", borderColor: "#fff", scale: 1.5, glyph: "中" },
 		低: { bg: "#2E7D32", borderColor: "#fff", scale: 1.5, glyph: "低" },
 	};
-
-	// google mapの読み込み
-	onMount(() => {
-		if ((window as any).google?.maps) {
-			initMap();
-			return;
-		}
-
-		const s = document.createElement("script");
-		s.src =
-			`https://maps.googleapis.com/maps/api/js` +
-			`?key=${PUBLIC_GOOGLE_MAPS_API_KEY}` +
-			`&callback=initMap&libraries=marker`;
-		s.async = true;
-		s.defer = true;
-		(window as any).initMap = initMap;
-		document.body.appendChild(s);
-	});
 
 	function initMap() {
 		const container = document.getElementById("map");
@@ -149,15 +155,12 @@
 		longitude: number;
 		instruction: string;
 		status: string;
-		before_images: {
-			hight: number;
-			width: number;
-			depth: number;
-			image_url: string;
-		}[];
-		after_images: {
-			image_url: string;
-		}[];
+		urgency: string;
+		completed: string | null;
+		signal: string;
+		discovery_images: ImageRec[];
+		before_images: ImageRec[];
+		after_images: ImageRec[];
 	}) {
 		if (!map) return;
 
@@ -172,7 +175,7 @@
 		const style = urgencyIcon[loc.urgency] ?? {
 			bg: "#777",
 			borderColor: "#fff",
-			glyph: "済",
+			glyph: "？",
 			scale: 1.5,
 		};
 
@@ -198,16 +201,13 @@
 			// ポップアップの中身
 			content: `
 			<div class="popup">
-				<span class="label">案件:</span> <strong>${loc.instruction}</strong><br>
+				<span class="label">案件:</span> <strong>${loc.instruction ?? "不明"}</strong><br>
 				<span class="label">ステータス:</span> <strong>${loc.status ?? "不明"}</strong><br>
-				<!-- data-msg で msg_id を渡す -->
 				<button class="instruction-btn" data-msg="${loc.msg_id}">
 					詳細
 				</button>
 			</div>
 			`,
-			// <strong>対応前写真:</strong>${imgBefore}<br>
-			// <strong>対応後写真:</strong>${imgAfter}<br>
 		});
 		google.maps.event.addListenerOnce(iw, "domready", () => {
 			// InfoWindow が地図ごとに固有の container を作る
@@ -231,6 +231,9 @@
 			map!.panTo(marker.position as google.maps.LatLng);
 		});
 	}
+
+	// ポップアップの詳細ボタンがクリックされたときの処理
+	// Svelteアクションであり、DOMに要素が追加されたタイミングで実行される
 	function register(node: HTMLDetailsElement, id: number) {
 		accMap.set(id, node); // 生成時に登録
 		return {
@@ -239,6 +242,8 @@
 			},
 		};
 	}
+
+	// 完了ボタンが押されたら、completedにFalseをセットする
 	function completedRegist_on(msgId: number, btn: HTMLButtonElement) {
 		fetch(`${API}/completed`, {
 			method: "POST",
@@ -254,7 +259,6 @@
 				btn.disabled = true; // ボタンを無効化
 				btn.textContent = "完了済み";
 				btn.classList.add("completed-label");
-				alert("完了登録をしました");
 			})
 			.catch((err) => {
 				console.error("データ取得失敗", err);
@@ -262,11 +266,8 @@
 			});
 	}
 
-	// 削除ボタンが押された時の処理
-	// spot_infoの deleted フラグを立てる
+	// 表示/非表示ボタンが押されたらspot_infoの deleted フラグを立てる
 	function daleteFlg_on(msgId: number, imgUrl: string, deleted: string) {
-		// 本番環境では、S3の画像URLを直接使えばいい
-
 		fetch(`${API}/deleted`, {
 			method: "POST",
 			headers: {
@@ -298,6 +299,7 @@
 			.catch((e) => console.error("データ取得失敗", e));
 	}
 
+	// 再読み込みボタンが押されたらget_locationsを呼ぶ
 	function reloadLocations() {
 		fetch(`${API}/get_locations`)
 			.then((r) => r.json())
@@ -307,29 +309,32 @@
 			.catch((e) => console.error("再読み込み失敗", e));
 	}
 
-	function firstVisible(images: { image_url: string; deleted: string }[]) {
-		return images.find((img) => img.deleted === "0") ?? null;
+	function firstVisible(images?: ImageRec[]) {
+		const arr = images ?? [];
+		return arr.find((img) => img.deleted === "0") ?? null;
 	}
 
-	function visibleCount(images: { image_url: string; deleted: string }[]) {
-		return images.filter((img) => img.deleted === "0").length;
+	function visibleCount(images?: ImageRec[]) {
+		const arr = images ?? [];
+		return arr.filter((img) => img.deleted === "0").length;
 	}
-	// ② サムネイルをクリックしたら呼ぶ
-	function openModal(
-		images: { image_url: string; deleted: string }[],
-		url: string,
-		id: number,
-	) {
+	// サムネイルをクリックしたら呼ぶ
+	function openModal(images: ImageRec[], url: string, id: number) {
 		modalImages = images;
 		modalMsgId = id;
 		const found = images.findIndex((img) => img.image_url === url);
 		updateCurrentImg(found >= 0 ? found : 0);
 	}
-	// ③ モーダル背景 or ×クリックで閉じる
+	// モーダル背景を閉じる
 	function closeModal() {
 		modalImages = [];
 		modalMsgId = null;
 		modalIndex = 0;
+	}
+
+	// すべてのカードを閉じる
+	function closeAll() {
+		accMap.forEach((el) => (el.open = false));
 	}
 </script>
 
@@ -340,6 +345,7 @@
 	<aside class="sidebar">
 		<!-- (loc.msg_id)←ユニークなキーを設定することで、同一のものを仕分けてくれる -->
 		{#each locations as loc (loc.msg_id)}
+			<!-- detailsは折りたたみ要素 -->
 			<details class="card" use:register={loc.msg_id}>
 				<summary class="header">
 					<span class="status">{loc.status}</span>
@@ -352,14 +358,85 @@
 						<span>指示：</span>
 						<span class="instruction-text">{loc.instruction}</span>
 					</p>
+					<!-- ① 報告（発見）写真 ---------------------------- -->
+					<p class="photo-block">
+						報告写真：<br />
+						{#if loc.discovery_images?.length > 0}
+							{#if firstVisible(loc.discovery_images)}
+								<span
+									class="thumb-container"
+									role="button"
+									tabindex="0"
+									on:click={() =>
+										openModal(
+											loc.discovery_images,
+											firstVisible(loc.discovery_images)!
+												.image_url,
+											loc.msg_id,
+										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
+											loc.discovery_images,
+											firstVisible(loc.discovery_images)!
+												.image_url,
+											loc.msg_id,
+										)}
+								>
+									<img
+										class="thumb"
+										src={firstVisible(loc.discovery_images)!
+											.image_url}
+										alt="報告写真サムネイル"
+									/>
+									{#if visibleCount(loc.discovery_images) > 1}
+										<span class="thumb-more">…</span>
+									{/if}
+								</span>
+							{:else}
+								<span
+									class="thumb-container no-image"
+									role="button"
+									tabindex="0"
+									on:click={() =>
+										openModal(
+											loc.discovery_images,
+											"",
+											loc.msg_id,
+										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
+											loc.discovery_images,
+											"",
+											loc.msg_id,
+										)}
+								>
+									非表示
+								</span>
+							{/if}
+						{:else}
+							<span class="thumb-container no-image">未登録</span>
+						{/if}
+					</p>
 					<p class="photo-block">
 						対応前写真：<br />
-						{#if loc.before_images.length > 0}
+						{#if loc.before_images?.length > 0}
 							{#if firstVisible(loc.before_images)}
 								<span
 									class="thumb-container"
+									role="button"
+									tabindex="0"
 									on:click={() =>
 										openModal(
+											loc.before_images,
+											firstVisible(loc.before_images)!
+												.image_url,
+											loc.msg_id,
+										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
 											loc.before_images,
 											firstVisible(loc.before_images)!
 												.image_url,
@@ -379,8 +456,17 @@
 							{:else}
 								<span
 									class="thumb-container no-image"
+									role="button"
+									tabindex="0"
 									on:click={() =>
 										openModal(
+											loc.before_images,
+											"",
+											loc.msg_id,
+										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
 											loc.before_images,
 											"",
 											loc.msg_id,
@@ -395,10 +481,12 @@
 					</p>
 					<p class="photo-block">
 						対応後写真：<br />
-						{#if loc.after_images.length > 0}
+						{#if loc.after_images?.length > 0}
 							{#if firstVisible(loc.after_images)}
 								<span
 									class="thumb-container"
+									role="button"
+									tabindex="0"
 									on:click={() =>
 										openModal(
 											loc.after_images,
@@ -406,13 +494,15 @@
 												.image_url,
 											loc.msg_id,
 										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
+											loc.after_images,
+											firstVisible(loc.after_images)!
+												.image_url,
+											loc.msg_id,
+										)}
 								>
-									<img
-										class="thumb"
-										src={firstVisible(loc.after_images)!
-											.image_url}
-										alt="対応後サムネイル"
-									/>
 									{#if visibleCount(loc.after_images) > 1}
 										<span class="thumb-more">…</span>
 									{/if}
@@ -420,8 +510,17 @@
 							{:else}
 								<span
 									class="thumb-container no-image"
+									role="button"
+									tabindex="0"
 									on:click={() =>
 										openModal(
+											loc.after_images,
+											"",
+											loc.msg_id,
+										)}
+									on:keydown={(e) =>
+										openModalKey(
+											e,
 											loc.after_images,
 											"",
 											loc.msg_id,
@@ -433,7 +532,7 @@
 						{:else}
 							<span class="thumb-container no-image">未登録</span>
 						{/if}
-						{#if loc.after_images.length > 0}
+						{#if loc.after_images?.length > 0}
 							{#if loc.completed === null}
 								<button
 									class="completed-btn"
@@ -455,6 +554,8 @@
 				</div>
 			</details>
 		{/each}
+		<!-- サイドバー下部に配置される全クローズボタン -->
+		<button class="close-all-btn" on:click={closeAll}> 全クローズ </button>
 	</aside>
 </div>
 
@@ -808,6 +909,22 @@
 		background: #ff3939;
 		color: #fff;
 		cursor: pointer;
+	}
+	.close-all-btn {
+		flex: 0 0 auto; /* aside の下に固定される (flexbox)  :contentReference[oaicite:2]{index=2} */
+		margin: 10px auto; /* 中央寄せ */
+		padding: 10px 0;
+		width: 100%; /* サイドバー内いっぱい */
+		border: none;
+		border-radius: 3px;
+		background: #c764f5be;
+		color: #fff;
+		font-weight: 600;
+		cursor: pointer;
+		user-select: none;
+	}
+	.close-all-btn:active {
+		transform: scale(0.97);
 	}
 
 	.status {

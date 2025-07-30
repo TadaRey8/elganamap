@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Splide, SplideSlide, SplideTrack } from "@splidejs/svelte-splide";
     import "@splidejs/splide/css";
+    import { onDestroy } from "svelte";
 
     const images = [
         "/manage/images/Image1.jpg",
@@ -8,6 +9,10 @@
         "/manage/images/Image3.jpg",
         "/manage/images/Image4.jpg",
     ];
+
+    onDestroy(() => {
+        alert("カルーセルページから離れます");
+    });
 </script>
 
 <main>
