@@ -5,57 +5,22 @@
 		PUBLIC_GOOGLE_MAPS_MAPID,
 		PUBLIC_API_BASE,
 	} from "$env/static/public";
-
 	import { onMount } from "svelte";
 	import { Splide, SplideSlide, SplideTrack } from "@splidejs/svelte-splide";
 	import "@splidejs/splide/css";
 
 	// dev では '', 本番では 'https://…'
 	const API = PUBLIC_API_BASE || "";
-
-	console.log("PUBLIC_API_BASE =", PUBLIC_API_BASE);
-	console.log("Requesting", `${PUBLIC_API_BASE || ""}/get_locations`);
+	// console.log("PUBLIC_API_BASE =", PUBLIC_API_BASE);
+	// console.log("Requesting", `${PUBLIC_API_BASE || ""}/get_locations`);
 
 	let map: google.maps.Map | null = null;
 	let currentInfoWindow: google.maps.InfoWindow | null = null;
-	/** 画像情報（discovery / before / after 共通） */
-	type ImageRec = {
-		/* 寸法 or 見積 ― スポットごとに存在可 */
-		height?: number;
-		width?: number;
-		depth?: number;
-		cost?: number;
-		term?: string;
-		/* 画像自体 */
-		image_url: string;
-		deleted: string;
-		/* 投稿者情報 ― 編集画面などで利用可 */
-		user_name?: string;
-		org?: string;
-		email_address?: string;
-	};
-
+	// 画像情報（discovery / before / after 共通）
 	let modalImages: ImageRec[] = [];
 	let modalIndex = 0;
 	let modalMsgId: number | null = null;
 	let currentImg: ImageRec | null = null;
-
-	/** クローンスライドを考慮して index と画像を同期 */
-	function updateCurrentImg(idx: number) {
-		if (!modalImages.length) {
-			currentImg = null;
-			modalIndex = 0;
-			return;
-		}
-		const norm =
-			((idx % modalImages.length) + modalImages.length) %
-			modalImages.length;
-		modalIndex = norm; // Splide の currentSlide も更新
-		currentImg = modalImages[norm];
-	}
-
-	// modalIndex または modalImages が変わる度に発火
-	$: updateCurrentImg(modalIndex);
 	let locations: {
 		msg_id: number;
 		latitude: number;
@@ -72,17 +37,37 @@
 		after_images: ImageRec[];
 	}[] = [];
 
-	// <msg_id, details要素> を保存するマップ
+	// カードのアコーディオンを管理するための辞書型Map
+	// constは再代入不可だが、Mapなどリストの内容は変更可能
 	const accMap: Map<number, HTMLDetailsElement> = new Map();
+	// マーカーのカスタマイズ
+	const urgencyIcon = {
+		高: { bg: "#D32F2F", borderColor: "#fff", scale: 1.5, glyph: "高" },
+		中: { bg: "#FBC02D", borderColor: "#fff", scale: 1.5, glyph: "中" },
+		低: { bg: "#2E7D32", borderColor: "#fff", scale: 1.5, glyph: "低" },
+	};
 
-	// details 要素が生成されるたびに登録
-	function regAcc(el: HTMLDetailsElement, id: number) {
-		accMap.set(id, el);
-	}
+	type ImageRec = {
+		// spot_info
+		height?: number;
+		width?: number;
+		depth?: number;
+		cost?: number;
+		term?: string;
+		image_url: string;
+		deleted: string;
+		// users
+		user_name?: string;
+		org?: string;
+		email_address?: string;
+	};
+
+	// modalIndexが変わる度に発火(リアクティブ宣言)
+	$: updateCurrentImg(modalIndex);
 
 	// コンポーネントが最初にDOMにレンダリングされた後に処理が走る
-	// Google Maps API スクリプトを読み込む
 	onMount(() => {
+		// Google Maps API スクリプトを読み込む
 		const s = document.createElement("script");
 		s.src =
 			`https://maps.googleapis.com/maps/api/js` +
@@ -92,10 +77,8 @@
 		s.defer = true;
 		(window as any).initMap = initMap;
 		document.body.appendChild(s);
-	});
 
-	onMount(() => {
-		// カスタムイベントを受け取って対応カードを開く
+		// カスタムイベント「open-acc」を受け取ってサイドバー開放
 		window.addEventListener("open-acc", (e: Event) => {
 			const id = (e as CustomEvent<number>).detail;
 			const acc = accMap.get(id);
@@ -105,13 +88,6 @@
 			}
 		});
 	});
-
-	// マーカーのカスタマイズ
-	const urgencyIcon = {
-		高: { bg: "#D32F2F", borderColor: "#fff", scale: 1.5, glyph: "高" },
-		中: { bg: "#FBC02D", borderColor: "#fff", scale: 1.5, glyph: "中" },
-		低: { bg: "#2E7D32", borderColor: "#fff", scale: 1.5, glyph: "低" },
-	};
 
 	function initMap() {
 		const container = document.getElementById("map");
@@ -138,7 +114,7 @@
 	// get_locationsから取得した文字列をデコードする関数
 	function normalizeStatus(raw: string): string {
 		try {
-			return decodeURIComponent(raw); // "%u5低…" → "低"
+			return decodeURIComponent(raw);
 		} catch {
 			return raw;
 		}
@@ -146,6 +122,20 @@
 
 	function isValidCoord(n: unknown): n is number {
 		return typeof n === "number" && !Number.isNaN(n);
+	}
+
+	// 先頭の画像が非表示にされた時のサムネイルの処理
+	function updateCurrentImg(idx: number) {
+		if (!modalImages.length) {
+			currentImg = null;
+			modalIndex = 0;
+			return;
+		}
+		const norm =
+			((idx % modalImages.length) + modalImages.length) %
+			modalImages.length;
+		modalIndex = norm; // Splide の currentSlide も更新
+		currentImg = modalImages[norm];
 	}
 
 	// マーカーの生成
@@ -673,9 +663,13 @@
 	:global(.splide__arrow) {
 		width: 40px;
 		height: 40px;
-		margin-left: -80px;
-		margin-right: -80px;
 		background: #c0a2f0;
+	}
+	:global(.splide__arrow--prev) {
+		left: -56px;
+	}
+	:global(.splide__arrow--next) {
+		right: -56px;
 	}
 
 	:global(.splide__pagination) {
@@ -832,13 +826,6 @@
 		margin-left: -20px;
 		font-size: 2rem;
 	}
-	.modal-image {
-		width: auto;
-		height: auto;
-		max-width: 100%;
-		max-height: 100%;
-		border-radius: 4px;
-	}
 	/* モーダル背景 */
 	.modal-overlay {
 		position: fixed;
@@ -859,7 +846,7 @@
 		background: #f8f8f8;
 		padding: 8px;
 		border-radius: 4px;
-		max-width: 50vh;
+		max-width: 50vw;
 		max-height: 90vh;
 		display: flex;
 		flex-direction: column;
@@ -883,7 +870,7 @@
 		max-width: 100%;
 		max-height: 100%;
 		border-radius: 4px;
-		margin: 4px auto 0 auto; /* 中央寄せ */
+		margin: 4px auto 0 auto;
 		display: block;
 	}
 	:global(.splide) {
@@ -895,10 +882,11 @@
 		align-items: center;
 	}
 	:global(.splide__slide img) {
-		display: block;
+		max-width: 100%;
+		max-height: 80vh;
+		object-fit: contain;
 		margin: auto;
 	}
-
 	.modal-delete {
 		position: absolute;
 		bottom: 8px;
