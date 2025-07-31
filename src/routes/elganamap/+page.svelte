@@ -6,14 +6,16 @@
     PUBLIC_API_BASE
   } from '$env/static/public';
   import { onMount } from 'svelte';
+  import { Loader } from '@googlemaps/js-api-loader';
   import { Splide, SplideSlide, SplideTrack } from '@splidejs/svelte-splide';
   import '@splidejs/splide/css';
+  // import { Const } from '$lib/const';
+  // import { Common } from '$lib/common';
+  // ポップアップのコンポーネントのインポート
+  import InfoWindow from '$lib/info-window.svelte';
 
   // dev では '', 本番では 'https://…'
   const API = PUBLIC_API_BASE || '';
-  // console.log("PUBLIC_API_BASE =", PUBLIC_API_BASE);
-  // console.log("Requesting", `${PUBLIC_API_BASE || ""}/get_locations`);
-
   let map: google.maps.Map | null = null;
   let currentInfoWindow: google.maps.InfoWindow | null = null;
   // 画像情報（discovery / before / after 共通）
@@ -67,64 +69,62 @@
 
   // コンポーネントが最初にDOMにレンダリングされた後に処理が走る
   onMount(() => {
-    // Google Maps API スクリプトを読み込む
-    const s = document.createElement('script');
-    s.src =
-      `https://maps.googleapis.com/maps/api/js` +
-      `?key=${PUBLIC_GOOGLE_MAPS_API_KEY}` +
-      `&callback=initMap&libraries=marker`;
-    s.async = true;
-    s.defer = true;
-    (window as any).initMap = initMap;
-    document.body.appendChild(s);
+    // Google Maps API を Loader で読み込む
+    const loader = new Loader({
+      apiKey: PUBLIC_GOOGLE_MAPS_API_KEY,
+      version: 'weekly',
+      libraries: ['marker']
+    });
+
+    loader.load().then(() => {
+      const container = document.getElementById('map');
+      if (!container) {
+        console.error('☆☆☆マップが見つかりません☆☆☆');
+        return;
+      }
+
+      map = new google.maps.Map(container, {
+        center: { lat: 35.6816858, lng: 139.7466155 },
+        zoom: 14,
+        mapId: PUBLIC_GOOGLE_MAPS_MAPID
+      });
+
+      fetch(`${API}/get_locations`)
+        .then((r) => r.json())
+        .then((data) => {
+          locations = data;
+          const allMonths = new Set<string>();
+          const allUrgencies = new Set<string>();
+          locations.forEach((loc) => {
+            const m = toMonth(loc.instruction);
+            if (m) allMonths.add(m);
+            allUrgencies.add(loc.urgency);
+            placeMarker(loc);
+          });
+
+          monthOptions = Array.from(allMonths).sort().reverse();
+          urgencyOptions = ['高', '中', '低'].filter((u) => allUrgencies.has(u));
+          selectedMonths = new Set(monthOptions);
+          selectedUrgencies = new Set(urgencyOptions);
+        })
+        .catch((e) => console.error('データ取得失敗', e));
+    });
 
     // カスタムイベント「open-acc」を受け取ってサイドバー開放
-    window.addEventListener('open-acc', (e: Event) => {
+    const openAccHandler = (e: Event) => {
       const id = (e as CustomEvent<number>).detail;
       const acc = accMap.get(id);
       if (acc) {
-        acc.open = true; // アコーディオンを開く
+        acc.open = true;
         acc.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    });
+    };
+    window.addEventListener('open-acc', openAccHandler);
+
+    return () => {
+      window.removeEventListener('open-acc', openAccHandler);
+    };
   });
-
-  function initMap() {
-    const container = document.getElementById('map');
-    if (!container) {
-      console.error('☆☆☆マップが見つかりません☆☆☆');
-      return;
-    }
-
-    map = new google.maps.Map(container, {
-      // JR神田駅
-      center: { lat: 35.6816858, lng: 139.7466155 },
-      zoom: 14,
-      mapId: PUBLIC_GOOGLE_MAPS_MAPID
-    });
-
-    fetch(`${API}/get_locations`)
-      .then((r) => r.json())
-      .then((data) => {
-        locations = data;
-        // フィルタ候補を生成
-        const allMonths = new Set<string>();
-        const allUrgencies = new Set<string>();
-        locations.forEach((loc) => {
-          const m = toMonth(loc.instruction);
-          if (m) allMonths.add(m); // null は無視
-          allUrgencies.add(loc.urgency);
-          placeMarker(loc); // マーカー生成
-        });
-
-        monthOptions = Array.from(allMonths).sort().reverse();
-        urgencyOptions = ['高', '中', '低'].filter((u) => allUrgencies.has(u));
-        // 初期設定（全選択）
-        selectedMonths = new Set(monthOptions);
-        selectedUrgencies = new Set(urgencyOptions);
-      })
-      .catch((e) => console.error('データ取得失敗', e));
-  }
 
   // マーカーの生成
   function placeMarker(loc: {
