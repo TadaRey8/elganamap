@@ -12,7 +12,8 @@
   // import { Const } from '$lib/const';
   // import { Common } from '$lib/common';
   // ポップアップのコンポーネントのインポート
-  import InfoWindow from '$lib/info-window.svelte';
+  import InfoWindowComponent from '$lib/info-window.svelte';
+  import { mount } from 'svelte';
 
   let mapElement: HTMLDivElement;
   let map: google.maps.Map;
@@ -181,31 +182,25 @@
     const before = loc.before_images?.[0];
     const after = loc.after_images?.[0];
 
-    const iw = new google.maps.InfoWindow({
-      content: `
-			<div class="popup">
-				<span class="label">案件:</span> <strong>${loc.instruction ?? '不明'}</strong><br>
-				<span class="label">ステータス:</span> <strong>${loc.status ?? '不明'}</strong><br>
-				<button class="instruction-btn" data-msg="${loc.msg_id}">
-					詳細
-				</button>
-			</div>
-			`
-    });
-    google.maps.event.addListenerOnce(iw, 'domready', () => {
-      // InfoWindow が地図ごとに固有の container を作る
-      // そこから msg_id 付きボタンを直接検索
-      const sel = `.gm-style-iw button.instruction-btn[data-msg="${loc.msg_id}"]`;
-      const btn = document.querySelector(sel) as HTMLButtonElement | null;
+    // コンポーネントをマウントするためのコンテナを作成
+    const container = document.createElement('div');
 
-      if (btn) {
-        btn.addEventListener('click', () => {
-          window.dispatchEvent(new CustomEvent('open-acc', { detail: loc.msg_id }));
-        });
+    // Info-Windowのコンポーネントをマウント
+    mount(InfoWindowComponent, {
+      target: container,
+      props: {
+        instruction: loc.instruction ?? '不明',
+        status: loc.status ?? '不明',
+        msgId: loc.msg_id,
+        onOpen: ({ msgId }) => window.dispatchEvent(new CustomEvent('open-acc', { detail: msgId }))
       }
     });
+    // InfoWindowを生成
+    const iw = new google.maps.InfoWindow({ content: container });
 
+    // マーカーにクリック時の動作
     marker.addListener('click', () => {
+      // 開かれているinfowindowがあれば閉じる
       currentInfoWindow?.close();
       iw.open(map!, marker);
       currentInfoWindow = iw;
@@ -339,12 +334,10 @@
         return res.json();
       })
       .then(() => {
-        /* ---- 1) フロント側の optimistic update ---- */
         modalImages = modalImages.map((img) =>
           img.image_url === imgUrl ? { ...img, deleted: deleted === '1' ? '0' : '1' } : img
         );
         updateCurrentImg(modalIndex);
-        /* ---- 2) サーバー最新を取得して整合 ---- */
         return fetch(`${API}/get_locations`);
       })
       .then((r) => r.json())
@@ -933,7 +926,9 @@
   .modal-content img {
     width: auto;
     height: auto;
-    max-width: 800px;
+    min-width: 50px;
+    min-height: 50px;
+    max-width: 600px;
     max-height: 600px;
     border-radius: 4px;
     margin: 4px auto 0 auto;
