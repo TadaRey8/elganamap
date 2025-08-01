@@ -14,9 +14,9 @@
   // ポップアップのコンポーネントのインポート
   import InfoWindow from '$lib/info-window.svelte';
 
-  // dev では '', 本番では 'https://…'
-  const API = PUBLIC_API_BASE || '';
-  let map: google.maps.Map | null = null;
+  let mapElement: HTMLDivElement;
+  let map: google.maps.Map;
+  let markers: google.maps.marker.AdvancedMarkerElement[][] = [[], [], []];
   let currentInfoWindow: google.maps.InfoWindow | null = null;
   // 画像情報（discovery / before / after 共通）
   let modalImages: ImageRec[] = [];
@@ -39,15 +39,26 @@
     after_images: ImageRec[];
   }[] = [];
 
+  // dev では '', 本番では 'https://…'
+  const API = PUBLIC_API_BASE || '';
   // カードのアコーディオンを管理するための辞書型Map
   // constは再代入不可だが、Mapなどリストの内容は変更可能
   const accMap: Map<number, HTMLDetailsElement> = new Map();
+  // Google Maps API を Loader で読み込む
+  const loader = new Loader({
+    apiKey: PUBLIC_GOOGLE_MAPS_API_KEY,
+    version: 'weekly',
+    region: 'JP',
+    language: 'ja',
+    libraries: ['marker']
+  });
   // マーカーのカスタマイズ
   const urgencyIcon = {
     高: { bg: '#D32F2F', borderColor: '#fff', scale: 1.5, glyph: '高' },
     中: { bg: '#FBC02D', borderColor: '#fff', scale: 1.5, glyph: '中' },
     低: { bg: '#2E7D32', borderColor: '#fff', scale: 1.5, glyph: '低' }
   };
+  const urgencyIndex = (u: string) => (u === '高' ? 0 : u === '中' ? 1 : 2);
 
   type ImageRec = {
     // spot_info
@@ -68,47 +79,43 @@
   $: updateCurrentImg(modalIndex);
 
   // コンポーネントが最初にDOMにレンダリングされた後に処理が走る
-  onMount(() => {
-    // Google Maps API を Loader で読み込む
-    const loader = new Loader({
-      apiKey: PUBLIC_GOOGLE_MAPS_API_KEY,
-      version: 'weekly',
-      libraries: ['marker']
+  onMount(async () => {
+    const { Map, FeatureType } = await loader.importLibrary('maps');
+    const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+
+    map = new Map(mapElement, {
+      mapId: PUBLIC_GOOGLE_MAPS_MAPID,
+      center: { lat: 35.6816858, lng: 139.7466155 },
+      zoom: 14,
+      gestureHandling: 'greedy',
+      restriction: {
+        latLngBounds: { north: 46, south: 25, west: 127, east: 150 },
+        strictBounds: true
+      },
+      zoomControl: false,
+      fullscreenControl: false,
+      streetViewControlOptions: { position: google.maps.ControlPosition.RIGHT_TOP }
     });
 
-    loader.load().then(() => {
-      const container = document.getElementById('map');
-      if (!container) {
-        console.error('☆☆☆マップが見つかりません☆☆☆');
-        return;
-      }
+    fetch(`${API}/get_locations`)
+      .then((r) => r.json())
+      .then((data) => {
+        locations = data;
+        const allMonths = new Set<string>();
+        const allUrgencies = new Set<string>();
+        locations.forEach((loc) => {
+          const m = toMonth(loc.instruction);
+          if (m) allMonths.add(m);
+          allUrgencies.add(loc.urgency);
+          placeMarker(loc);
+        });
 
-      map = new google.maps.Map(container, {
-        center: { lat: 35.6816858, lng: 139.7466155 },
-        zoom: 14,
-        mapId: PUBLIC_GOOGLE_MAPS_MAPID
-      });
-
-      fetch(`${API}/get_locations`)
-        .then((r) => r.json())
-        .then((data) => {
-          locations = data;
-          const allMonths = new Set<string>();
-          const allUrgencies = new Set<string>();
-          locations.forEach((loc) => {
-            const m = toMonth(loc.instruction);
-            if (m) allMonths.add(m);
-            allUrgencies.add(loc.urgency);
-            placeMarker(loc);
-          });
-
-          monthOptions = Array.from(allMonths).sort().reverse();
-          urgencyOptions = ['高', '中', '低'].filter((u) => allUrgencies.has(u));
-          selectedMonths = new Set(monthOptions);
-          selectedUrgencies = new Set(urgencyOptions);
-        })
-        .catch((e) => console.error('データ取得失敗', e));
-    });
+        monthOptions = Array.from(allMonths).sort().reverse();
+        urgencyOptions = ['高', '中', '低'].filter((u) => allUrgencies.has(u));
+        selectedMonths = new Set(monthOptions);
+        selectedUrgencies = new Set(urgencyOptions);
+      })
+      .catch((e) => console.error('データ取得失敗', e));
 
     // カスタムイベント「open-acc」を受け取ってサイドバー開放
     const openAccHandler = (e: Event) => {
@@ -166,17 +173,15 @@
     });
 
     const marker = new google.maps.marker.AdvancedMarkerElement({
-      position: { lat: loc.latitude, lng: loc.longitude },
       map,
+      position: { lat: loc.latitude, lng: loc.longitude },
       content: pin.element,
       title: `${loc.msg_id} (${loc.status})`
     });
-
     const before = loc.before_images?.[0];
     const after = loc.after_images?.[0];
 
     const iw = new google.maps.InfoWindow({
-      // ポップアップの中身
       content: `
 			<div class="popup">
 				<span class="label">案件:</span> <strong>${loc.instruction ?? '不明'}</strong><br>
@@ -206,7 +211,7 @@
       currentInfoWindow = iw;
       map!.panTo(marker.position as google.maps.LatLng);
     });
-    markers.set(loc.msg_id, marker);
+    markers[urgencyIndex(loc.urgency)].push(marker);
   }
 
   // get_locationsから取得した文字列をデコードする関数
@@ -234,29 +239,17 @@
     currentImg = modalImages[norm];
   }
 
-  // マーカーの管理
-  // msg_id → AdvancedMarker の対応表
-  const markers: Map<number, google.maps.marker.AdvancedMarkerElement> = new Map();
-
-  // filteredLocations が変わるたびに可視 / 非表示を同期
   $: if (map) {
-    // map が null の間はスキップ
-    // 依存関係として filteredLocations を参照
-    filteredLocations;
-    updateMarkers();
-  }
+    // 全部非表示
+    markers.flat().forEach((m) => (m.map = null));
 
-  function updateMarkers() {
-    markers.forEach((m, id) => {
-      const vis = filteredLocations.some((l) => l.msg_id === id);
+    // msg_id のハッシュを作って高速判定
+    const visibleIds = new Set(filteredLocations.map((l) => l.msg_id));
 
-      if (vis && m.map === null) {
-        // 再表示
-        m.map = map!;
-      } else if (!vis && m.map !== null) {
-        // 非表示
-        m.map = null;
-      }
+    markers.flat().forEach((m) => {
+      // title 先頭に埋め込んだ msg_id を “文字列のまま” 取得
+      const id = m.title?.split(' ')[0] ?? '';
+      if (visibleIds.has(id)) m.map = map;
     });
   }
 
@@ -280,12 +273,19 @@
   }
 
   // 条件に合う配列をリアクティブに計算
-  $: filteredLocations = locations
-    .filter((l) => {
-      const m = toMonth(l.instruction);
-      return selectedMonths.size === 0 || (m && selectedMonths.has(m));
-    })
-    .filter((l) => selectedUrgencies.size === 0 || selectedUrgencies.has(l.urgency));
+  $: filteredLocations = locations.filter((l) => {
+    // 月が 1 つも選ばれていない → 全部除外
+    if (selectedMonths.size === 0) return false;
+    // 緊急度が 1 つも選ばれていない → 全部除外
+    if (selectedUrgencies.size === 0) return false;
+
+    // AND 条件
+    const m = toMonth(l.instruction);
+    const monthHit = m !== null && selectedMonths.has(m);
+    const urgencyHit = selectedUrgencies.has(l.urgency);
+
+    return monthHit && urgencyHit;
+  });
 
   // ポップアップの詳細ボタンがクリックされたときの処理
   // Svelteアクションであり、DOMに要素が追加されたタイミングで実行される
@@ -391,7 +391,7 @@
   }
 </script>
 
-<div id="map"></div>
+<div class="map" bind:this={mapElement}></div>
 <button class="reload-btn" on:click={reloadLocations}> 再読み込み </button>
 <div class="filter-bar">
   <!-- 月フィルタ -->
@@ -413,7 +413,9 @@
           type="checkbox"
           checked={selectedMonths.has(m)}
           on:change={(e) => {
-            e.currentTarget.checked ? selectedMonths.add(m) : selectedMonths.delete(m);
+            const next = new Set(selectedMonths); // ★ 新しい Set を作る
+            e.currentTarget.checked ? next.add(m) : next.delete(m);
+            selectedMonths = next;
           }}
         />
         {m}
@@ -440,7 +442,9 @@
           type="checkbox"
           checked={selectedUrgencies.has(u)}
           on:change={(e) => {
-            e.currentTarget.checked ? selectedUrgencies.add(u) : selectedUrgencies.delete(u);
+            const next = new Set(selectedUrgencies); // ★
+            e.currentTarget.checked ? next.add(u) : next.delete(u);
+            selectedUrgencies = next;
           }}
         />
         {u}
@@ -751,7 +755,7 @@
   :global(.splide__pagination__page.is-active) {
     background: #a88af0;
   }
-  #map {
+  .map {
     width: 100vw;
     height: 100vh;
   }
@@ -929,7 +933,7 @@
   .modal-content img {
     width: auto;
     height: auto;
-    max-width: 800;
+    max-width: 800px;
     max-height: 600px;
     border-radius: 4px;
     margin: 4px auto 0 auto;
