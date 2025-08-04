@@ -560,6 +560,7 @@ def elgana_api():
 def get_locations():
     locations = []
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -572,64 +573,63 @@ def get_locations():
             urgency,
             customer_info,
             remarks,
-            completed
+            completed,
+            signal
         FROM operation_orders
     """
     )
-    row = cursor.fetchall()
+    operations = cursor.fetchall()
 
-    for r in row:
+    for o in operations:
+        operation = dict(o)
+        signal = operation.get("signal")
+        msg_id = operation.get("msg_id")
+        if signal == "0":
+            continue
+        discovery_image_dict_list = []
         before_image_dict_list = []
         after_image_dict_list = []
         cursor.execute(
             """
         SELECT
-            repair_required,
-            hight,
-            width,
-            depth,
-            image_url,
-            deleted
-        FROM spot_info
-        WHERE msg_id = ?
+            s.repair_required,
+            s.height,
+            s.width,
+            s.depth,
+            s.image_url,
+            s.status_flag,
+            s.deleted,
+            s.cost,
+            s.term,
+            u.user_name,
+            u.org,
+            u.email_address
+        FROM spot_info AS s
+        INNER JOIN user_info AS u ON s.user_id = u.user_id
+        WHERE s.msg_id = ?
         """,
-            (r[0],),
+            (msg_id,),
         )
         spots = cursor.fetchall()
-
         if spots:
             for s in spots:
-                if s[0] == "true":
-                    before_image_dict = {
-                        "hight": s[1],
-                        "width": s[2],
-                        "depth": s[3],
-                        "image_url": s[4],
-                        "deleted": s[5],
-                    }
-                    before_image_dict_list.append(before_image_dict)
-                if s[0] == "false":
-                    after_image_dict = {"image_url": s[4], "deleted": s[5]}
-                    after_image_dict_list.append(after_image_dict)
+                spot = dict(s)
+                repair_required = spot.get("repair_required")
+                status_flag = spot.get("status_flag")
+                if status_flag == "0":
+                    discovery_image_dict_list.append(spot)
+                elif status_flag == "1":
+                    if repair_required == "true":
+                        before_image_dict_list.append(spot)
+                    elif repair_required == "false":
+                        after_image_dict_list.append(spot)
 
-        locations.append(
-            {
-                "msg_id": r[0],
-                "latitude": r[1],
-                "longitude": r[2],
-                "instruction": r[3],
-                "status": r[4],
-                "urgency": r[5],
-                "customer_info": r[6],
-                "remarks": r[7],
-                "completed": r[8],
-                "before_images": before_image_dict_list,
-                "after_images": after_image_dict_list,
-            }
-        )
+        operation["discovery_images"] = discovery_image_dict_list
+        operation["before_images"] = before_image_dict_list
+        operation["after_images"] = after_image_dict_list
+        locations.append(operation)
 
     conn.close()
-
     return jsonify(locations)
 
 
