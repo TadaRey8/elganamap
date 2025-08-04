@@ -61,6 +61,7 @@
   };
   const urgencyIndex = (u: string) => (u === '高' ? 0 : u === '中' ? 1 : 2);
 
+  // typeで型に名前を定義する
   type ImageRec = {
     // spot_info
     height?: number;
@@ -639,7 +640,9 @@
         {#if modalImages[0].deleted === '1'}
           <span class="hidden-message">画像は非表示になっています</span>
         {:else}
-          <img src={modalImages[0].image_url} alt="拡大画像" />
+          <div class="single-img-frame">
+            <img src={modalImages[0].image_url} alt="拡大画像" />
+          </div>
         {/if}
       {:else}
         <Splide
@@ -651,7 +654,8 @@
             perPage: 1,
             perMove: 1,
             arrows: true,
-            drag: true
+            drag: true,
+            fixedHeight: '80vmin' // 画面短辺の 80%
           }}
           on:move={(e) => updateCurrentImg(e.detail.newIndex)}
           bind:currentSlide={modalIndex}
@@ -662,7 +666,9 @@
                 {#if img.deleted === '1'}
                   <span class="hidden-message">画像は非表示になっています</span>
                 {:else}
-                  <img src={img.image_url} alt="拡大画像" />
+                  <div class="slide-frame">
+                    <img src={img.image_url} alt="拡大画像" />
+                  </div>
                 {/if}
               </SplideSlide>
             {/each}
@@ -692,37 +698,13 @@
     margin: 0;
     height: 100%;
   }
-  :global(.gm-style-iw .popup) {
-    font-family: sans-serif;
-    font-size: 15px;
-    line-height: 1.4;
-    color: #333;
-  }
-  :global(.gm-style-iw .popup .label) {
-    font-weight: bold;
-    font-size: 13px;
-    color: #646464;
-  }
-  :global(.gm-style-iw .popup .value) {
-    font-weight: bold;
-    color: #000;
-  }
-
-  :global(.gm-style-iw .instruction-btn) {
-    display: block; /* インライン→ブロック */
-    margin: auto; /* 中央寄せ */
-    margin-top: 10px; /* 上に余白 */
-    padding: 4px 10px;
-    background: #2b7bfd;
-    color: #fff;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
   :global(.splide__arrow) {
     width: 40px;
     height: 40px;
     background: #c0a2f0;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
   }
   :global(.splide__arrow--prev) {
     left: -56px;
@@ -734,7 +716,6 @@
   :global(.splide__pagination) {
     position: relative; /* static に戻す */
     bottom: 0;
-    margin-top: 1rem;
     justify-content: center;
   }
   :global(.splide__pagination__page) {
@@ -903,13 +884,39 @@
   .modal-content {
     position: relative;
     background: #f8f8f8;
-    padding: 8px;
-    border-radius: 4px;
-    max-width: 50vw;
+    padding: 1.8rem 2rem;
+    border-radius: 8px;
+    max-width: min(90vw, 1000px);
     max-height: 90vh;
     display: flex;
     flex-direction: column;
     align-items: center;
+  }
+  /* 拡大画像 */
+  .modal-content img {
+    max-width: 600px;
+    max-height: 600px;
+    border-radius: 4px;
+    margin: 0 auto;
+    display: block;
+  }
+
+  /* ===== 共通の画像フレーム ===== */
+  .slide-frame,
+  .single-img-frame {
+    width: 80vmin; /* 短辺基準で正方形枠 */
+    height: 80vmin;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden; /* 次画像がのぞかないように */
+  }
+
+  .modal-content .slide-frame img,
+  .modal-content .single-img-frame img {
+    width: 150%; /* どちらの辺かは必ずフィル */
+    height: 150%;
+    object-fit: contain; /* 切り取り・歪みなしで収める */
   }
 
   /* ×ボタン */
@@ -922,32 +929,20 @@
     align-self: flex-end;
   }
 
-  /* 拡大画像 */
-  .modal-content img {
-    width: auto;
-    height: auto;
-    min-width: 50px;
-    min-height: 50px;
-    max-width: 600px;
-    max-height: 600px;
-    border-radius: 4px;
-    margin: 4px auto 0 auto;
-    display: block;
-  }
   :global(.splide) {
     width: 100%;
+    height: 80vmin; /* 枠高に合わせる */
+  }
+  :global(.splide__track) {
+    height: 100%;
   }
   :global(.splide__slide) {
+    height: 100%;
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
   }
-  :global(.splide__slide img) {
-    max-width: 100%;
-    max-height: 80vh;
-    object-fit: contain;
-    margin: auto;
-  }
+
   .modal-delete {
     position: absolute;
     bottom: 8px;
