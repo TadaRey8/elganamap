@@ -10,17 +10,25 @@
 </script>
 
 <div class="popup">
-  <span class="label">案件:</span> <strong>{instruction}</strong><br />
-  <span class="label">ステータス:</span> <strong>{status}</strong><br />
+  <span class="label">案件:{instruction}</span><br />
+  <span class="label">ステータス:{status}</span><br />
   <button class="instruction-btn" on:click={handleClick}> 詳細 </button>
 </div>
 
 <style>
-  .popup {
-    line-height: 1.5;
-    font-size: 0.85rem;
-  }
   .label {
-    color: #666;
+    font-size: 0.9rem;
+    color: #000000;
+  }
+  .instruction-btn {
+    display: block; /* インライン→ブロック */
+    margin: auto; /* 中央寄せ */
+    margin-top: 10px; /* 上に余白 */
+    padding: 4px 10px;
+    background: #2b7bfd;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
   }
 </style>
