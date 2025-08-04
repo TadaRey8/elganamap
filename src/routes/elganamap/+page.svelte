@@ -579,6 +579,11 @@
                       loc.msg_id
                     )}
                 >
+                  <img
+                    class="thumb"
+                    src={firstVisible(loc.after_images)!.image_url}
+                    alt="対応前サムネイル"
+                  />
                   {#if visibleCount(loc.after_images) > 1}
                     <span class="thumb-more">…</span>
                   {/if}
@@ -597,6 +602,7 @@
             {:else}
               <span class="thumb-container no-image">未登録</span>
             {/if}
+
             {#if loc.after_images?.length > 0}
               {#if loc.completed === null}
                 <button
