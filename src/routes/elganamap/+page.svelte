@@ -19,6 +19,14 @@
   let map: google.maps.Map;
   let markers: google.maps.marker.AdvancedMarkerElement[][] = [[], [], []];
   let currentInfoWindow: google.maps.InfoWindow | null = null;
+  // フィルターの管理
+  let monthOptions: string[] = [];
+  let urgencyOptions: string[] = [];
+  let completedOptions: string[] = [];
+  // ユーザ選択 (初期値 = 全選択で「全件表示」)
+  let selectedMonths: Set<string> = new Set();
+  let selectedUrgencies: Set<string> = new Set();
+  let selectedCompleted: Set<string> = new Set();
   // 画像情報（discovery / before / after 共通）
   let modalImages: ImageRec[] = [];
   let modalIndex = 0;
@@ -26,18 +34,18 @@
   let currentImg: ImageRec | null = null;
   let locations: {
     msg_id: number;
-    latitude: number;
-    longitude: number;
-    instruction: string;
-    status: string;
-    urgency: string;
-    customer_info: string;
-    remarks: string;
-    completed: string | null;
-    signal: string;
-    discovery_images: ImageRec[];
-    before_images: ImageRec[];
-    after_images: ImageRec[];
+    latitude?: number;
+    longitude?: number;
+    instruction?: string;
+    status?: string;
+    urgency?: string;
+    customer_info?: string;
+    remarks?: string;
+    completed?: string | null;
+    signal?: string;
+    discovery_images?: ImageRec[];
+    before_images?: ImageRec[];
+    after_images?: ImageRec[];
   }[] = [];
 
   // dev では '', 本番では 'https://…'
@@ -82,7 +90,7 @@
 
   // コンポーネントが最初にDOMにレンダリングされた後に処理が走る
   onMount(async () => {
-    const { Map, FeatureType } = await loader.importLibrary('maps');
+    const { Map } = await loader.importLibrary('maps');
     const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
 
     map = new Map(mapElement, {
@@ -99,25 +107,8 @@
       streetViewControlOptions: { position: google.maps.ControlPosition.RIGHT_TOP }
     });
 
-    fetch(`${API}/get_locations`)
-      .then((r) => r.json())
-      .then((data) => {
-        locations = data;
-        const allMonths = new Set<string>();
-        const allUrgencies = new Set<string>();
-        locations.forEach((loc) => {
-          const m = toMonth(loc.instruction);
-          if (m) allMonths.add(m);
-          allUrgencies.add(loc.urgency);
-          placeMarker(loc);
-        });
-
-        monthOptions = Array.from(allMonths).sort().reverse();
-        urgencyOptions = ['高', '中', '低'].filter((u) => allUrgencies.has(u));
-        selectedMonths = new Set(monthOptions);
-        selectedUrgencies = new Set(urgencyOptions);
-      })
-      .catch((e) => console.error('データ取得失敗', e));
+    locations = await fetchLocations();
+    filterMakers(locations);
 
     // カスタムイベント「open-acc」を受け取ってサイドバー開放
     const openAccHandler = (e: Event) => {
@@ -135,20 +126,24 @@
     };
   });
 
+  // get_locations API の呼び出し（非同期処理）
+  // 戻り値の型を配列に明示
+  async function fetchLocations(): Promise<Location[]> {
+    try {
+      const res = await fetch(`${API}/get_locations`);
+      // 例外が生まれたとき
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // 配列を返す
+      return await res.json();
+    } catch (err) {
+      console.error('get_locations 取得失敗', err);
+      // 失敗時は空配列
+      return [];
+    }
+  }
+
   // マーカーの生成
-  function placeMarker(loc: {
-    msg_id: number;
-    latitude: number;
-    longitude: number;
-    instruction: string;
-    status: string;
-    urgency: string;
-    completed: string | null;
-    signal: string;
-    discovery_images: ImageRec[];
-    before_images: ImageRec[];
-    after_images: ImageRec[];
-  }) {
+  function placeMarker(loc: (typeof locations)[number]) {
     if (!map) return;
 
     if (!isValidCoord(loc.latitude) || !isValidCoord(loc.longitude)) {
@@ -209,6 +204,34 @@
     });
     markers[urgencyIndex(loc.urgency)].push(marker);
   }
+  function clearMarkers() {
+    markers.flat().forEach((mk) => (mk.map = null));
+    markers.forEach((bucket) => (bucket.length = 0));
+  }
+
+  function filterMakers(data: typeof locations) {
+    // Set はユニーク集合保持が簡単  :contentReference[oaicite:4]{index=4}
+    const monthSet = new Set<string>();
+    const urgencySet = new Set<string>();
+    const completedSet = new Set<string>();
+
+    data.forEach((loc) => {
+      const m = toMonth(loc.instruction);
+      if (m) monthSet.add(m);
+      urgencySet.add(loc.urgency);
+      completedSet.add(toCompleted(loc.completed));
+      placeMarker(loc);
+    });
+
+    // UI 反映
+    monthOptions = Array.from(monthSet).sort().reverse();
+    urgencyOptions = ['高', '中', '低'].filter((u) => urgencySet.has(u));
+    completedOptions = ['未完了', '完了済み'].filter((u) => completedSet.has(u));
+
+    selectedMonths = new Set(monthOptions);
+    selectedUrgencies = new Set(urgencyOptions);
+    selectedCompleted = new Set(completedOptions);
+  }
 
   // get_locationsから取得した文字列をデコードする関数
   function normalizeStatus(raw: string): string {
@@ -219,6 +242,7 @@
     }
   }
 
+  // 座標が有効かどうかをチェックする関数
   function isValidCoord(n: unknown): n is number {
     return typeof n === 'number' && !Number.isNaN(n);
   }
@@ -239,7 +263,7 @@
     // 全部非表示
     markers.flat().forEach((m) => (m.map = null));
 
-    // msg_id のハッシュを作って高速判定
+    // msg_id のハッシュを作って判定
     const visibleIds = new Set(filteredLocations.map((l) => l.msg_id));
 
     markers.flat().forEach((m) => {
@@ -248,14 +272,6 @@
       if (visibleIds.has(id)) m.map = map;
     });
   }
-
-  // フィルターの管理
-  let monthOptions: string[] = [];
-  let urgencyOptions: string[] = [];
-
-  // ユーザ選択 (初期値 = 全選択で「全件表示」)
-  let selectedMonths: Set<string> = new Set();
-  let selectedUrgencies: Set<string> = new Set();
 
   // 受信 instruction → "YYYY-MM" へ変換
   // フォーマット外なら null を返す
@@ -268,19 +284,25 @@
     return `20${yy}-${mm}`; // 例: 25-07 → 2025-07
   }
 
-  // 条件に合う配列をリアクティブに計算
-  $: filteredLocations = locations.filter((l) => {
-    // 月が 1 つも選ばれていない → 全部除外
-    if (selectedMonths.size === 0) return false;
-    // 緊急度が 1 つも選ばれていない → 全部除外
-    if (selectedUrgencies.size === 0) return false;
+  function toCompleted(v: string | null): '完了済み' | '未完了' {
+    return v === null ? '未完了' : '完了済み';
+  }
 
-    // AND 条件
-    const m = toMonth(l.instruction);
+  // フィルター機能の条件
+  $: filteredLocations = locations.filter((l) => {
+    // チェックボックスが全 OFF の軸は全部除外
+    if (selectedMonths.size === 0) return false;
+    if (selectedUrgencies.size === 0) return false;
+    if (selectedCompleted.size === 0) return false;
+
+    // 各項目ごとの判定
+    const m = toMonth(l.instruction); // "YYYY-MM" or null
     const monthHit = m !== null && selectedMonths.has(m);
     const urgencyHit = selectedUrgencies.has(l.urgency);
+    const completedHit = selectedCompleted.has(toCompleted(l.completed));
 
-    return monthHit && urgencyHit;
+    // 全項目のAND条件
+    return monthHit && urgencyHit && completedHit;
   });
 
   // ポップアップの詳細ボタンがクリックされたときの処理
@@ -295,72 +317,63 @@
   }
 
   // 完了ボタンが押されたら、completedにFalseをセットする
-  function completedRegist_on(msgId: number, btn: HTMLButtonElement) {
-    fetch(`${API}/completed`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msg_id: msgId })
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('完了登録に失敗しました');
-        return res.json();
-      })
-      .then(() => {
-        console.log('完了登録成功');
-        btn.disabled = true; // ボタンを無効化
-        btn.textContent = '完了済み';
-        btn.classList.add('completed-label');
-      })
-      .catch((err) => {
-        console.error('データ取得失敗', err);
-        alert(err instanceof Error ? err.message : err);
+  async function completedRegist_on(msgId: number, btn: HTMLButtonElement) {
+    try {
+      const res = await fetch(`${API}/completed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg_id: msgId })
       });
+      if (!res.ok) throw new Error('完了登録に失敗しました');
+
+      console.log('完了登録成功');
+      btn.disabled = true; // ボタンを無効化
+      btn.textContent = '完了済み';
+      btn.classList.add('completed-label');
+
+      locations = await fetchLocations();
+      filterMakers(locations);
+    } catch (e) {
+      console.error('データ取得失敗', e);
+      alert(e instanceof Error ? e.message : e);
+    }
   }
 
   // 表示/非表示ボタンが押されたらspot_infoの deleted フラグを立てる
-  function daleteFlg_on(msgId: number, imgUrl: string, deleted: string) {
-    fetch(`${API}/deleted`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        msg_id: msgId,
-        image_url: imgUrl,
-        deleted: deleted
-      })
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('画像削除に失敗しました');
-        return res.json();
-      })
-      .then(() => {
-        modalImages = modalImages.map((img) =>
-          img.image_url === imgUrl ? { ...img, deleted: deleted === '1' ? '0' : '1' } : img
-        );
-        updateCurrentImg(modalIndex);
-        return fetch(`${API}/get_locations`);
-      })
-      .then((r) => r.json())
-      .then((newLocs) => (locations = newLocs))
-      .catch((e) => console.error('データ取得失敗', e));
+  async function daleteFlg_on(msgId: number, imgUrl: string, deleted: string) {
+    try {
+      const res = await fetch(`${API}/deleted`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg_id: msgId, image_url: imgUrl, deleted })
+      });
+      if (!res.ok) throw new Error('画像削除に失敗しました');
+
+      modalImages = modalImages.map((img) =>
+        img.image_url === imgUrl ? { ...img, deleted: deleted === '1' ? '0' : '1' } : img
+      );
+      updateCurrentImg(modalIndex);
+
+      locations = await fetchLocations();
+      filterMakers(locations);
+    } catch (e) {
+      console.error('処理失敗', e);
+    }
   }
 
   // 再読み込みボタンが押されたらget_locationsを呼ぶ
-  function reloadLocations() {
-    fetch(`${API}/get_locations`)
-      .then((r) => r.json())
-      .then((data) => {
-        locations = data;
-      })
-      .catch((e) => console.error('再読み込み失敗', e));
+  async function reloadLocations() {
+    const data = await fetchLocations();
+    clearMarkers();
+    locations = data;
+    filterMakers(locations);
   }
-
+  // モーダルで表示する画像の処理
   function firstVisible(images?: ImageRec[]) {
     const arr = images ?? [];
     return arr.find((img) => img.deleted === '0') ?? null;
   }
-
+  // 表示されている画像の数をカウントする
   function visibleCount(images?: ImageRec[]) {
     const arr = images ?? [];
     return arr.filter((img) => img.deleted === '0').length;
@@ -407,7 +420,7 @@
           type="checkbox"
           checked={selectedMonths.has(m)}
           on:change={(e) => {
-            const next = new Set(selectedMonths); // ★ 新しい Set を作る
+            const next = new Set(selectedMonths);
             e.currentTarget.checked ? next.add(m) : next.delete(m);
             selectedMonths = next;
           }}
@@ -416,7 +429,6 @@
       </label>
     {/each}
   </details>
-
   <!-- 緊急度フィルタ -->
   <details class="filter">
     <summary>緊急度で絞り込み</summary>
@@ -436,7 +448,7 @@
           type="checkbox"
           checked={selectedUrgencies.has(u)}
           on:change={(e) => {
-            const next = new Set(selectedUrgencies); // ★
+            const next = new Set(selectedUrgencies);
             e.currentTarget.checked ? next.add(u) : next.delete(u);
             selectedUrgencies = next;
           }}
@@ -445,7 +457,36 @@
       </label>
     {/each}
   </details>
+  <!-- 進捗フィルター -->
+  <details class="filter">
+    <summary>進捗状況で絞り込み</summary>
+    <label class="all-check">
+      <input
+        type="checkbox"
+        checked={selectedCompleted.size === completedOptions.length}
+        on:change={(e) => {
+          selectedCompleted = e.currentTarget.checked ? new Set(completedOptions) : new Set();
+        }}
+      />
+      全選択
+    </label>
+    {#each completedOptions as u}
+      <label>
+        <input
+          type="checkbox"
+          checked={selectedCompleted.has(u)}
+          on:change={(e) => {
+            const next = new Set(selectedCompleted); // ★
+            e.currentTarget.checked ? next.add(u) : next.delete(u);
+            selectedCompleted = next;
+          }}
+        />
+        {u}
+      </label>
+    {/each}
+  </details>
 </div>
+<!-- サイドバー -->
 <div class="sidebar-wrap">
   <h2 class="sidebar-title">明和町包括的DX地図</h2>
   <aside class="sidebar">
@@ -626,7 +667,7 @@
     <button class="close-all-btn" on:click={closeAll}> 全クローズ </button>
   </aside>
 </div>
-
+<!-- モーダル表示 -->
 {#if modalImages.length}
   <div
     class="modal-overlay"
