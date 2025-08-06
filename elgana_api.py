@@ -556,12 +556,17 @@ def elgana_api():
     return jsonify({"error": "Message ignored"}), 400
 
 
+class DictCursor(sqlite3.Cursor):
+    def fetchall_dict(self):
+        return list(map(dict, self.fetchall()))
+
+
 @app.route("/get_locations", methods=["GET"])
 def get_locations():
     locations = []
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    cursor = conn.cursor(factory=DictCursor)
     cursor.execute(
         """
         SELECT
@@ -574,14 +579,14 @@ def get_locations():
             customer_info,
             remarks,
             completed,
-            signal
+            signal,
+            received_at,
+            update_at
         FROM operation_orders
     """
     )
-    operations = cursor.fetchall()
-
-    for o in operations:
-        operation = dict(o)
+    operations = cursor.fetchall_dict()
+    for operation in operations:
         signal = operation.get("signal")
         msg_id = operation.get("msg_id")
         if signal == "0":
@@ -603,17 +608,17 @@ def get_locations():
             s.term,
             u.user_name,
             u.org,
-            u.email_address
+            u.email_address,
+            s.create_at
         FROM spot_info AS s
         INNER JOIN user_info AS u ON s.user_id = u.user_id
         WHERE s.msg_id = ?
         """,
             (msg_id,),
         )
-        spots = cursor.fetchall()
+        spots = cursor.fetchall_dict()
         if spots:
-            for s in spots:
-                spot = dict(s)
+            for spot in spots:
                 repair_required = spot.get("repair_required")
                 status_flag = spot.get("status_flag")
                 if status_flag == "0":
@@ -624,11 +629,19 @@ def get_locations():
                     elif repair_required == "false":
                         after_image_dict_list.append(spot)
 
+        if operation["completed"]:
+            operation_status = "3"
+        elif after_image_dict_list:
+            operation_status = "2"
+        elif before_image_dict_list:
+            operation_status = "1"
+        else:
+            operation_status = "0"
+        operation["operation_status"] = operation_status
         operation["discovery_images"] = discovery_image_dict_list
         operation["before_images"] = before_image_dict_list
         operation["after_images"] = after_image_dict_list
         locations.append(operation)
-
     conn.close()
     return jsonify(locations)
 
