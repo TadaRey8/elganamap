@@ -13,12 +13,18 @@
   // import { Common } from '$lib/common';
   // ポップアップのコンポーネントのインポート
   import InfoWindowComponent from '$lib/info-window.svelte';
+  import Dialog from '$lib/Dialog.svelte';
   import { mount } from 'svelte';
 
   let mapElement: HTMLDivElement;
   let map: google.maps.Map;
   let markers: google.maps.marker.AdvancedMarkerElement[][] = [];
   let currentInfoWindow: google.maps.InfoWindow | null = null;
+  // ダイアログの変数
+  let showDialog = false;
+  let dialogMsg = '';
+  let dialogOk = () => {};
+  let dialogCancel = () => {};
   // フィルターの管理
   let monthOptions: string[] = [];
   let urgencyOptions: string[] = [];
@@ -202,7 +208,7 @@
     // InfoWindowを生成
     const iw = new google.maps.InfoWindow({ content: container });
 
-    // マーカーにクリック時の動作
+    // マーカークリック時の動作
     marker.addListener('click', () => {
       // 開かれているinfowindowがあれば閉じる
       currentInfoWindow?.close();
@@ -324,6 +330,22 @@
         accMap.delete(id); // 要素が消えたら解除
       }
     };
+  }
+
+  function tryComplete(msgId: number, afterCount: number, btn: HTMLButtonElement) {
+    // after_images が 0 枚 → 確認あり
+    if (afterCount === 0) {
+      dialogMsg = '画像が登録されていませんが、完了しますか？';
+      dialogOk = () => completedRegist_on(msgId, btn);
+      dialogCancel = () => {}; // 何もしない
+      showDialog = true;
+      return;
+    }
+    // 写真がある → 即確認ダイアログ
+    dialogMsg = '完了登録を行います。';
+    dialogOk = () => completedRegist_on(msgId, btn);
+    dialogCancel = () => {};
+    showDialog = true;
   }
 
   // 完了ボタンが押されたら、completedにFalseをセットする
@@ -509,6 +531,8 @@
       <!-- detailsは折りたたみ要素 -->
       <details class="card" use:register={loc.msg_id}>
         <summary class="header">
+          <!-- 受信日時（秒を切り捨て） -->
+          <span class="received">{loc.received_at.slice(0, 16)}</span><br />
           <span class="status">{loc.status}</span>
           <span class="msg">{loc.remarks}</span>
         </summary>
@@ -658,27 +682,27 @@
               <span class="thumb-container no-image">未登録</span>
             {/if}
 
-            {#if loc.after_images?.length > 0}
-              {#if loc.completed === null}
-                <button
-                  class="completed-btn"
-                  on:click={(e) =>
-                    completedRegist_on(loc.msg_id, e.currentTarget as HTMLButtonElement)}
-                >
-                  この作業を完了する
-                </button>
-              {:else}
-                <span class="completed-label">完了済み</span>
-              {/if}
+            {#if loc.completed === null}
+              <button
+                class="completed-btn"
+                on:click={(e) =>
+                  tryComplete(
+                    loc.msg_id,
+                    loc.after_images?.length ?? 0,
+                    e.currentTarget as HTMLButtonElement
+                  )}
+              >
+                この作業を完了する
+              </button>
             {:else}
-              <span class="no-work"> 作業未報告</span>
+              <span class="completed-label">完了済み</span>
             {/if}
           </p>
         </div>
       </details>
     {/each}
     <!-- サイドバー下部に配置される全クローズボタン -->
-    <button class="close-all-btn" on:click={closeAll}> 全クローズ </button>
+    <button class="close-all-btn" on:click={closeAll}> すべてのカードを閉じる </button>
   </aside>
 </div>
 <!-- モーダル表示 -->
@@ -753,3 +777,60 @@
     </button>
   </div>
 {/if}
+<Dialog bind:visible={showDialog} message={dialogMsg} onOk={dialogOk} onCancel={dialogCancel} />
+
+<style>
+  /* 外部に出せなかったorz */
+  :global(.splide) {
+    width: 100%;
+    height: 80vmin;
+  }
+
+  :global(.splide__track) {
+    height: 100%;
+  }
+
+  :global(.splide__slide) {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(.splide__arrow) {
+    width: 40px;
+    height: 40px;
+    background: #c0a2f0;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  :global(.splide__arrow--prev) {
+    left: -56px;
+  }
+
+  :global(.splide__arrow--next) {
+    right: -56px;
+  }
+
+  :global(.splide__pagination) {
+    position: relative;
+    /* static に戻す */
+    bottom: 0;
+    justify-content: center;
+  }
+
+  :global(.splide__pagination__page) {
+    width: 12px;
+    height: 12px;
+    margin: 0 6px;
+    border-radius: 50%;
+    background: #858484;
+    transition: background 1s;
+  }
+
+  :global(.splide__pagination__page.is-active) {
+    background: #a88af0;
+  }
+</style>
