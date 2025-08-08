@@ -52,8 +52,9 @@ html {
 }
 
 .card>summary.header {
-    justify-content: space-between;
-    padding: 10px 10px;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
     cursor: pointer;
 }
 
@@ -62,10 +63,108 @@ html {
     border-top: 1.5px solid #3a3939;
 }
 
-.instruction-text {
+.header-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.header-top .instruction {
+    margin-left: 30px;
     font-weight: bold;
+}
+
+.header-bottom {
+    margin-top: 6px;
+}
+
+.remarks-label {
+    font-size: large;
+    font-weight: bold;
+    text-decoration: underline;
     color: #000000;
 }
+
+.remarks-text {
+    margin-top: auto;
+    color: #000000;
+}
+
+.customer-info-label {
+    font-size: large;
+    font-weight: bold;
+    text-decoration: underline;
+    color: #000000;
+}
+
+.customer-info-text {
+    margin-top: auto;
+    color: #000000;
+}
+
+.photo-label {
+    font-size: large;
+    font-weight: bold;
+    text-decoration: underline;
+    color: #000000;
+}
+
+.task {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #000000;
+}
+
+.label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 1rem;
+    font-weight: bold;
+}
+
+/* 低 */
+.urgency.low {
+    background: #2E7D32;
+}
+
+/* 中 */
+.urgency.medium {
+    background: #f5bc00;
+}
+
+/* 高 */
+.urgency.high {
+    background: #C62828;
+}
+
+
+
+/* 報告 */
+.work-status.report {
+    background: #616161;
+}
+
+/* 作業中 */
+.work-status.in-progress {
+    background: #1976D2;
+}
+
+/* 作業済 */
+.work-status.out-progress {
+    background: #00897B;
+}
+
+/* 完了 */
+.work-status.done {
+    background: #6A1B9A;
+}
+
+
 
 .completed-btn {
     display: block;

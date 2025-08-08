@@ -13,6 +13,7 @@
   // import { Common } from '$lib/common';
   // ポップアップのコンポーネントのインポート
   import InfoWindowComponent from '$lib/info-window.svelte';
+  // ダイアログコンポーネントのインポート
   import Dialog from '$lib/Dialog.svelte';
   import { mount } from 'svelte';
 
@@ -50,6 +51,7 @@
     completed?: string | null;
     signal?: string;
     operation_status?: string;
+    created_at?: string;
     discovery_images?: ImageRec[];
     before_images?: ImageRec[];
     after_images?: ImageRec[];
@@ -300,10 +302,6 @@
     return `20${yy}-${mm}`; // 例: 25-07 → 2025-07
   }
 
-  function toCompleted(v: string | null): '完了済み' | '未完了' {
-    return v === null ? '未完了' : '完了済み';
-  }
-
   // フィルター機能の条件
   $: filteredLocations = locations.filter((l) => {
     // チェックボックスが全 OFF の軸は全部除外
@@ -330,6 +328,35 @@
         accMap.delete(id); // 要素が消えたら解除
       }
     };
+  }
+
+  // 緊急度クラスを返す
+  function urgencyClass(urg: string) {
+    return urg === '低' ? 'low' : urg === '中' ? 'medium' : urg === '高' ? 'high' : '';
+  }
+
+  // 作業状況クラス＆文字を返す（operation_status: '1'→報告, '2'→作業, '3'→完了）
+  function workStatusClass(code: string) {
+    return code === '0'
+      ? 'report'
+      : code === '1'
+        ? 'in-progress'
+        : code === '2'
+          ? 'out-progress'
+          : code === '3'
+            ? 'done'
+            : 'null';
+  }
+  function workStatusText(code: string) {
+    return code === '0'
+      ? '報'
+      : code === '1'
+        ? '作'
+        : code === '2'
+          ? '済'
+          : code === '3'
+            ? '完'
+            : '?';
   }
 
   function tryComplete(msgId: number, afterCount: number, btn: HTMLButtonElement) {
@@ -512,7 +539,7 @@
           type="checkbox"
           checked={selectedStatuses.has(u)}
           on:change={(e) => {
-            const next = new Set(selectedStatuses); // ★
+            const next = new Set(selectedStatuses);
             e.currentTarget.checked ? next.add(u) : next.delete(u);
             selectedStatuses = next;
           }}
@@ -531,21 +558,40 @@
       <!-- detailsは折りたたみ要素 -->
       <details class="card" use:register={loc.msg_id}>
         <summary class="header">
-          <!-- 受信日時（秒を切り捨て） -->
-          <span class="received">{loc.received_at.slice(0, 16)}</span><br />
-          <span class="status">{loc.status}</span>
-          <span class="msg">{loc.remarks}</span>
+          <div class="header-top">
+            <!-- 緊急度アイコン -->
+            <span class="label urgency {urgencyClass(loc.urgency)}">
+              {loc.urgency}
+            </span>
+            <!-- 作業状況アイコン -->
+            <span class="label work-status {workStatusClass(loc.operation_status)}">
+              {workStatusText(loc.operation_status)}
+            </span>
+            <!-- 一意に定まる指示 -->
+            <span class="instruction">{loc.instruction}</span>
+          </div>
+
+          <div class="header-bottom">
+            <!-- 作業種別 -->
+            <span class="task">状況 : {loc.status}</span>
+          </div>
         </summary>
 
         <!-- 展開時に見せる中身 -->
         <div class="body">
-          <p class="instruction">
-            <span>指示：</span>
-            <span class="instruction-text">{loc.instruction}</span>
-          </p>
-          <!-- 報告（発見）写真 ---------------------------- -->
-          <p class="photo-block">
-            報告写真：<br />
+          <div class="remarks">
+            <span class="remarks-label">備考</span><br />
+            <span class="remarks-text">{loc.remarks}</span>
+          </div>
+          <br />
+          <div class="customer-info">
+            <span class="customer-info-label">お客様要請</span><br />
+            <span class="customer-info-text">{loc.customer_info}</span>
+          </div>
+          <br />
+          <!-- 報告（発見）写真 -->
+          <div class="photo-block">
+            <span class="photo-label">報告写真</span>
             {#if loc.discovery_images?.length > 0}
               {#if firstVisible(loc.discovery_images)}
                 <span
@@ -589,9 +635,10 @@
             {:else}
               <span class="thumb-container no-image">未登録</span>
             {/if}
-          </p>
-          <p class="photo-block">
-            対応前写真：<br />
+          </div>
+          <br />
+          <div class="photo-block">
+            <span class="photo-label">作業前写真</span><br />
             {#if loc.before_images?.length > 0}
               {#if firstVisible(loc.before_images)}
                 <span
@@ -635,9 +682,10 @@
             {:else}
               <span class="thumb-container no-image">未登録</span>
             {/if}
-          </p>
-          <p class="photo-block">
-            対応後写真：<br />
+          </div>
+          <br />
+          <div class="photo-block">
+            <span class="photo-label">作業後写真</span><br />
             {#if loc.after_images?.length > 0}
               {#if firstVisible(loc.after_images)}
                 <span
@@ -681,7 +729,9 @@
             {:else}
               <span class="thumb-container no-image">未登録</span>
             {/if}
-
+          </div>
+          <br />
+          <div class="completed-btn-block">
             {#if loc.completed === null}
               <button
                 class="completed-btn"
@@ -697,7 +747,7 @@
             {:else}
               <span class="completed-label">完了済み</span>
             {/if}
-          </p>
+          </div>
         </div>
       </details>
     {/each}
@@ -753,6 +803,7 @@
                 {:else}
                   <div class="slide-frame">
                     <img src={img.image_url} alt="拡大画像" />
+                    <p>あああ</p>
                   </div>
                 {/if}
               </SplideSlide>
@@ -777,6 +828,7 @@
     </button>
   </div>
 {/if}
+<!-- 確認ダイアログのコンポーネント -->
 <Dialog bind:visible={showDialog} message={dialogMsg} onOk={dialogOk} onCancel={dialogCancel} />
 
 <style>
