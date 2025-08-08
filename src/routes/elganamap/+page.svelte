@@ -30,10 +30,12 @@
   let monthOptions: string[] = [];
   let urgencyOptions: string[] = [];
   let statusOptions: string[] = [];
+  let missingOptions: string[] = [];
   // ユーザ選択 (初期値 = 全選択で「全件表示」)
   let selectedMonths: Set<string> = new Set();
   let selectedUrgencies: Set<string> = new Set();
   let selectedStatuses: Set<string> = new Set();
+  let selectedMissing: Set<string> = new Set();
   // 画像情報（discovery / before / after 共通）
   let modalImages: ImageRec[] = [];
   let modalIndex = 0;
@@ -232,12 +234,14 @@
     const monthSet = new Set<string>();
     const urgencySet = new Set<string>();
     const statusSet = new Set<string>();
+    const missingSet = new Set<string>();
 
     data.forEach((loc) => {
       const m = toMonth(loc.instruction);
       if (m) monthSet.add(m);
       urgencySet.add(urgencyLabel(loc.urgency));
       statusSet.add(statusLabel(loc.operation_status));
+      missingSet.add(hasMissing(loc) ? '未入力項目あり' : '未入力項目なし');
       placeMarker(loc);
     });
 
@@ -245,10 +249,12 @@
     monthOptions = Array.from(monthSet).sort().reverse();
     urgencyOptions = ['高', '中', '低', 'その他'];
     statusOptions = ['報告状態', '作業前状態', '作業後状態', '完了状態'];
+    missingOptions = ['未入力項目あり', '未入力項目なし'];
 
     selectedMonths = new Set(monthOptions);
     selectedUrgencies = new Set(urgencyOptions);
     selectedStatuses = new Set(statusOptions);
+    selectedMissing = new Set(missingOptions);
   }
 
   // get_locationsから取得した文字列をデコードする関数
@@ -302,21 +308,31 @@
     return `20${yy}-${mm}`; // 例: 25-07 → 2025-07
   }
 
+  // 未入力判定関数
+  function hasMissing(loc: (typeof locations)[number]): boolean {
+    const lackInstr = !loc.instruction;
+    const lackLat = loc.latitude === undefined || loc.longitude === undefined;
+    const lackImages = (loc.discovery_images?.filter((i) => i.deleted === '0').length ?? 0) === 0;
+    return lackInstr || lackLat || lackImages;
+  }
+
   // フィルター機能の条件
   $: filteredLocations = locations.filter((l) => {
     // チェックボックスが全 OFF の軸は全部除外
     if (selectedMonths.size === 0) return false;
     if (selectedUrgencies.size === 0) return false;
     if (selectedStatuses.size === 0) return false;
+    if (selectedMissing.size === 0) return false;
 
     // 各項目ごとの判定
     const m = toMonth(l.instruction); // "YYYY-MM" or null
     const monthHit = m !== null && selectedMonths.has(m);
     const urgencyHit = selectedUrgencies.has(urgencyLabel(l.urgency));
     const statusHit = selectedStatuses.has(statusLabel(l.operation_status));
+    const missingHit = selectedMissing.has(hasMissing(l) ? '未入力項目あり' : '未入力項目なし');
 
     // 全項目のAND条件
-    return monthHit && urgencyHit && statusHit;
+    return monthHit && urgencyHit && statusHit && missingHit;
   });
 
   // ポップアップの詳細ボタンがクリックされたときの処理
@@ -373,6 +389,16 @@
     dialogOk = () => completedRegist_on(msgId, btn);
     dialogCancel = () => {};
     showDialog = true;
+  }
+
+  // ★ 未入力の“具体的な項目名”を配列で返す（表示用）
+  function missingReasons(loc: (typeof locations)[number]): string[] {
+    const reasons: string[] = [];
+    if (!loc.instruction) reasons.push('指示（instruction）');
+    if (loc.latitude === undefined || loc.longitude === undefined) reasons.push('緯度・経度');
+    const visibleDiscovery = loc.discovery_images?.filter((i) => i.deleted === '0').length ?? 0;
+    if (visibleDiscovery === 0) reasons.push('報告写真');
+    return reasons;
   }
 
   // 完了ボタンが押されたら、completedにFalseをセットする
@@ -548,6 +574,34 @@
       </label>
     {/each}
   </details>
+  <!-- 未入力項目フィルタ ★ 追加 -->
+  <details class="filter">
+    <summary>未入力項目で絞り込み</summary>
+    <label class="all-check">
+      <input
+        type="checkbox"
+        checked={selectedMissing.size === missingOptions.length}
+        on:change={(e) => {
+          selectedMissing = e.currentTarget.checked ? new Set(missingOptions) : new Set();
+        }}
+      />
+      全選択
+    </label>
+    {#each missingOptions as opt}
+      <label>
+        <input
+          type="checkbox"
+          checked={selectedMissing.has(opt)}
+          on:change={(e) => {
+            const next = new Set(selectedMissing);
+            e.currentTarget.checked ? next.add(opt) : next.delete(opt);
+            selectedMissing = next;
+          }}
+        />
+        {opt}
+      </label>
+    {/each}
+  </details>
 </div>
 <!-- サイドバー -->
 <div class="sidebar-wrap">
@@ -587,6 +641,17 @@
           <div class="customer-info">
             <span class="customer-info-label">お客様要請</span><br />
             <span class="customer-info-text">{loc.customer_info}</span>
+          </div>
+          <br />
+          <div class="lack-info">
+            <span class="lack-info-label">不足情報</span><br />
+            {#if missingReasons(loc).length === 0}
+              <span class="lack-info-text none">なし</span>
+            {:else}
+              {#each missingReasons(loc) as reason}
+                <span class="lack-info-text">{reason}</span>
+              {/each}
+            {/if}
           </div>
           <br />
           <!-- 報告（発見）写真 -->
@@ -799,7 +864,7 @@
             perMove: 1,
             arrows: true,
             drag: true,
-            fixedHeight: '80vmin' // 画面短辺の 80%
+            autoHeight: true
           }}
           on:move={(e) => updateCurrentImg(e.detail.newIndex)}
           bind:currentSlide={modalIndex}
