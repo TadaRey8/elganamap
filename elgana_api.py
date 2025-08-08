@@ -646,12 +646,16 @@ def get_locations():
     return jsonify(locations)
 
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+
 @app.route("/completed", methods=["POST"])
 def completed():
 
     data = request.get_json()
     msg_id = data.get("msg_id")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
 
     if not msg_id:
         return ({"error": "msg_id is not correct"}), 400
