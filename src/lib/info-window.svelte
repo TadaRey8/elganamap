@@ -9,14 +9,14 @@
   }
 </script>
 
-<div class="popup">
-  <span class="label">案件:{instruction}</span><br />
-  <span class="label">ステータス:{status}</span><br />
+<div class="map-infowindow">
+  <span class="window-label">案件:{instruction}</span><br />
+  <span class="window-label">ステータス:{status}</span><br />
   <button class="instruction-btn" on:click={handleClick}> 詳細 </button>
 </div>
 
 <style>
-  .label {
+  .window-label {
     font-size: 0.9rem;
     color: #000000;
   }

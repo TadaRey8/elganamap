@@ -51,7 +51,6 @@
     completed?: string | null;
     signal?: string;
     operation_status?: string;
-    created_at?: string;
     discovery_images?: ImageRec[];
     before_images?: ImageRec[];
     after_images?: ImageRec[];
@@ -94,6 +93,7 @@
     term?: string;
     image_url: string;
     deleted: string;
+    create_at?: string;
     // users
     user_name?: string;
     org?: string;
@@ -559,12 +559,12 @@
       <details class="card" use:register={loc.msg_id}>
         <summary class="header">
           <div class="header-top">
-            <!-- 緊急度アイコン -->
-            <span class="label urgency {urgencyClass(loc.urgency)}">
+            <!-- 緊急度バッヂ -->
+            <span class="badge urgency {urgencyClass(loc.urgency)}">
               {loc.urgency}
             </span>
-            <!-- 作業状況アイコン -->
-            <span class="label work-status {workStatusClass(loc.operation_status)}">
+            <!-- 作業状況バッヂ -->
+            <span class="badge work-status {workStatusClass(loc.operation_status)}">
               {workStatusText(loc.operation_status)}
             </span>
             <!-- 一意に定まる指示 -->
@@ -776,7 +776,16 @@
           <span class="hidden-message">画像は非表示になっています</span>
         {:else}
           <div class="single-img-frame">
-            <img src={modalImages[0].image_url} alt="拡大画像" />
+            <div class="img-wrap">
+              <img src={modalImages[0].image_url} alt="拡大画像" />
+            </div>
+            <div class="img-meta">
+              <span>費用: {modalImages[0].cost ?? '─'}円</span>
+              <span>期間: {modalImages[0].term ?? '─'}日</span>
+              <span>画像の送信者: {modalImages[0].user_name ?? '─'}</span>
+              <span>画像の送信日時: {modalImages[0].create_at?.slice(0, 10) ?? '─'}</span>
+              <span class="ai-alart">※数値はAIによる結果であり確実ではない場合があります。</span>
+            </div>
           </div>
         {/if}
       {:else}
@@ -802,8 +811,18 @@
                   <span class="hidden-message">画像は非表示になっています</span>
                 {:else}
                   <div class="slide-frame">
-                    <img src={img.image_url} alt="拡大画像" />
-                    <p>あああ</p>
+                    <div class="img-wrap">
+                      <img src={img.image_url} alt="拡大画像" />
+                    </div>
+                    <div class="img-meta">
+                      <span>費用: {modalImages[0].cost ?? '─'}円</span>
+                      <span>期間: {modalImages[0].term ?? '─'}日</span>
+                      <span>画像の送信者: {modalImages[0].user_name ?? '─'}</span>
+                      <span>画像の送信日時: {modalImages[0].create_at?.slice(0, 10) ?? '─'}</span>
+                      <span class="ai-alart"
+                        >※数値はAIによる結果であり確実ではない場合があります。</span
+                      >
+                    </div>
                   </div>
                 {/if}
               </SplideSlide>
