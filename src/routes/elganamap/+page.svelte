@@ -241,7 +241,7 @@
       if (m) monthSet.add(m);
       urgencySet.add(urgencyLabel(loc.urgency));
       statusSet.add(statusLabel(loc.operation_status));
-      missingSet.add(hasMissing(loc) ? '未入力項目あり' : '未入力項目なし');
+      missingSet.add(hasMissing(loc) ? '不足情報あり' : '不足情報なし');
       placeMarker(loc);
     });
 
@@ -249,7 +249,7 @@
     monthOptions = Array.from(monthSet).sort().reverse();
     urgencyOptions = ['高', '中', '低', 'その他'];
     statusOptions = ['報告状態', '作業前状態', '作業後状態', '完了状態'];
-    missingOptions = ['未入力項目あり', '未入力項目なし'];
+    missingOptions = ['不足情報あり', '不足情報なし'];
 
     selectedMonths = new Set(monthOptions);
     selectedUrgencies = new Set(urgencyOptions);
@@ -329,7 +329,7 @@
     const monthHit = m !== null && selectedMonths.has(m);
     const urgencyHit = selectedUrgencies.has(urgencyLabel(l.urgency));
     const statusHit = selectedStatuses.has(statusLabel(l.operation_status));
-    const missingHit = selectedMissing.has(hasMissing(l) ? '未入力項目あり' : '未入力項目なし');
+    const missingHit = selectedMissing.has(hasMissing(l) ? '不足情報あり' : '不足情報なし');
 
     // 全項目のAND条件
     return monthHit && urgencyHit && statusHit && missingHit;
@@ -576,7 +576,7 @@
   </details>
   <!-- 未入力項目フィルタ ★ 追加 -->
   <details class="filter">
-    <summary>未入力項目で絞り込み</summary>
+    <summary>不足情報の有無</summary>
     <label class="all-check">
       <input
         type="checkbox"
