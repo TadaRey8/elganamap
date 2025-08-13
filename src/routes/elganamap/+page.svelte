@@ -5,7 +5,7 @@
     PUBLIC_GOOGLE_MAPS_MAPID,
     PUBLIC_API_BASE
   } from '$env/static/public';
-  import { onMount } from 'svelte';
+  import { onMount, mount } from 'svelte';
   import { Loader } from '@googlemaps/js-api-loader';
   import { Splide, SplideSlide, SplideTrack } from '@splidejs/svelte-splide';
   import '@splidejs/splide/css';
@@ -15,8 +15,7 @@
   import InfoWindowComponent from '$lib/info-window.svelte';
   // ダイアログコンポーネントのインポート
   import Dialog from '$lib/Dialog.svelte';
-  import { mount } from 'svelte';
-
+  // マップやマーカーの型定義
   let mapElement: HTMLDivElement;
   let map: google.maps.Map;
   let markers: google.maps.marker.AdvancedMarkerElement[][] = [];
@@ -36,12 +35,12 @@
   let selectedUrgencies: Set<string> = new Set();
   let selectedStatuses: Set<string> = new Set();
   let selectedMissing: Set<string> = new Set();
-  // 画像情報（discovery / before / after 共通）
+  // 画像モーダルの管理
   let modalImages: ImageRec[] = [];
   let modalIndex = 0;
   let modalMsgId: number | null = null;
   let currentImg: ImageRec | null = null;
-  let locations: {
+  type ApiLocation = {
     msg_id: number;
     latitude?: number;
     longitude?: number;
@@ -52,39 +51,11 @@
     remarks?: string;
     completed?: string | null;
     signal?: string;
-    operation_status?: string;
+    operation_status: string;
     discovery_images?: ImageRec[];
     before_images?: ImageRec[];
     after_images?: ImageRec[];
-  }[] = [];
-
-  // dev では '', 本番では 'https://…'
-  const API = PUBLIC_API_BASE || '';
-  // カードのアコーディオンを管理するための辞書型Map
-  // constは再代入不可だが、Mapなどリストの内容は変更可能
-  const accMap: Map<number, HTMLDetailsElement> = new Map();
-  // Google Maps API を Loader で読み込む
-  const loader = new Loader({
-    apiKey: PUBLIC_GOOGLE_MAPS_API_KEY,
-    version: 'weekly',
-    region: 'JP',
-    language: 'ja',
-    libraries: ['marker']
-  });
-  // マーカーのカスタマイズ
-  const urgencyIcon = {
-    高: { bg: '#D32F2F', borderColor: '#fff', scale: 1.5, glyph: '高' },
-    中: { bg: '#FBC02D', borderColor: '#fff', scale: 1.5, glyph: '中' },
-    低: { bg: '#2E7D32', borderColor: '#fff', scale: 1.5, glyph: '低' }
   };
-  const urgencyIndex = (u: string) => (u === '高' ? 0 : u === '中' ? 1 : u === '低' ? 2 : 3);
-  const urgencyLabel = (u: string) =>
-    u === '高' ? '高' : u === '中' ? '中' : u === '低' ? '低' : 'その他';
-  const statusLabel = (s: string | undefined): string =>
-    (({ '0': '報告状態', '1': '作業前状態', '2': '作業後状態', '3': '完了状態' }) as const)[
-      s ?? ''
-    ] ?? '不明';
-
   // typeで型に名前を定義する
   type ImageRec = {
     // spot_info
@@ -101,6 +72,48 @@
     org?: string;
     email_address?: string;
   };
+  // データ本体
+  let locations: ApiLocation[] = [];
+  let filteredLocations: ApiLocation[] = [];
+
+  // dev では '', 本番では 'https://…'
+  const API = PUBLIC_API_BASE || '';
+  // カードのアコーディオンを管理するための辞書型Map
+  // constは再代入不可だが、Mapなどリストの内容は変更可能
+  const accMap: Map<number, HTMLDetailsElement> = new Map();
+  // Google Maps API を Loader で読み込む
+  const loader = new Loader({
+    apiKey: PUBLIC_GOOGLE_MAPS_API_KEY,
+    version: 'weekly',
+    region: 'JP',
+    language: 'ja',
+    libraries: ['marker']
+  });
+  // === 緊急度マーカー ===
+  type Urgency = '高' | '中' | '低';
+  type MarkerStyle = { bg: string; borderColor: string; scale: number; glyph: string };
+
+  const urgencyIcon: Record<Urgency, MarkerStyle> = {
+    高: { bg: '#D32F2F', borderColor: '#fff', scale: 1.5, glyph: '高' },
+    中: { bg: '#FBC02D', borderColor: '#fff', scale: 1.5, glyph: '中' },
+    低: { bg: '#2E7D32', borderColor: '#fff', scale: 1.5, glyph: '低' }
+  };
+  const defaultStyle: MarkerStyle = { bg: '#777', borderColor: '#fff', scale: 1.5, glyph: '？' };
+  const getUrgencyStyle = (u?: string): MarkerStyle =>
+    (u && (urgencyIcon as Record<string, MarkerStyle>)[u]) || defaultStyle;
+  const urgencyIndex = (u: string) => (u === '高' ? 0 : u === '中' ? 1 : u === '低' ? 2 : 3);
+  const urgencyLabel = (u: string) =>
+    u === '高' ? '高' : u === '中' ? '中' : u === '低' ? '低' : '不明';
+  const statusLabel = (s: string | undefined): string =>
+    (
+      ({
+        '0': '報告中',
+        '1': '作業依頼中',
+        '2': '作業報告中',
+        '3': '完了',
+        '4': '未処理'
+      }) as const
+    )[s ?? ''] ?? '不明';
 
   // modalIndexが変わる度に発火(リアクティブ宣言)
   $: updateCurrentImg(modalIndex);
@@ -145,116 +158,15 @@
 
   // get_locations API の呼び出し（非同期処理）
   // 戻り値の型を配列に明示
-  async function fetchLocations(): Promise<Location[]> {
+  async function fetchLocations(): Promise<ApiLocation[]> {
     try {
       const res = await fetch(`${API}/get_locations`);
-      // 例外が生まれたとき
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // 配列を返す
-      return await res.json();
+      return (await res.json()) as ApiLocation[];
     } catch (err) {
       console.error('get_locations 取得失敗', err);
-      // 失敗時は空配列
       return [];
     }
-  }
-
-  // マーカーの生成
-  function placeMarker(loc: (typeof locations)[number]) {
-    if (!map) return;
-
-    if (!isValidCoord(loc.latitude) || !isValidCoord(loc.longitude)) {
-      console.log('緯度経度がNullのためスキップ:', loc.msg_id);
-      return; // ★ NULL レコードはここで弾く
-    }
-
-    const status = normalizeStatus(loc.status);
-
-    // 緊急度がなかった時のマーカースタイル
-    const style = urgencyIcon[loc.urgency] ?? {
-      bg: '#777',
-      borderColor: '#fff',
-      glyph: '？',
-      scale: 1.5
-    };
-
-    const pin = new google.maps.marker.PinElement({
-      background: style.bg,
-      borderColor: style.borderColor,
-      glyph: style.glyph,
-      glyphColor: '#fff',
-      scale: style.scale
-    });
-
-    const marker = new google.maps.marker.AdvancedMarkerElement({
-      map,
-      position: { lat: loc.latitude, lng: loc.longitude },
-      content: pin.element,
-      // マーカーのホバーで出てくる内容（msg_idは消せない）
-      title: `${loc.msg_id} (${loc.status})`
-    });
-    const before = loc.before_images?.[0];
-    const after = loc.after_images?.[0];
-
-    // コンポーネントをマウントするためのコンテナを作成
-    const container = document.createElement('div');
-
-    // Info-Windowのコンポーネントをマウント
-    mount(InfoWindowComponent, {
-      target: container,
-      props: {
-        instruction: loc.instruction ?? '不明',
-        status: loc.status ?? '不明',
-        msgId: loc.msg_id,
-        onOpen: ({ msgId }) => window.dispatchEvent(new CustomEvent('open-acc', { detail: msgId }))
-      }
-    });
-    // InfoWindowを生成
-    const iw = new google.maps.InfoWindow({ content: container });
-
-    // マーカークリック時の動作
-    marker.addListener('click', () => {
-      // 開かれているinfowindowがあれば閉じる
-      currentInfoWindow?.close();
-      iw.open(map!, marker);
-      currentInfoWindow = iw;
-      map!.panTo(marker.position as google.maps.LatLng);
-    });
-    const idx = urgencyIndex(loc.urgency);
-    if (!markers[idx]) markers[idx] = [];
-    markers[idx].push(marker);
-  }
-  function clearMarkers() {
-    markers.flat().forEach((mk) => (mk.map = null)); // 既存マーカー解除
-    markers = [];
-  }
-
-  function filterMakers(data: typeof locations) {
-    // Set はユニーク集合保持が簡単  :contentReference[oaicite:4]{index=4}
-    const monthSet = new Set<string>();
-    const urgencySet = new Set<string>();
-    const statusSet = new Set<string>();
-    const missingSet = new Set<string>();
-
-    data.forEach((loc) => {
-      const m = toMonth(loc.instruction);
-      if (m) monthSet.add(m);
-      urgencySet.add(urgencyLabel(loc.urgency));
-      statusSet.add(statusLabel(loc.operation_status));
-      missingSet.add(hasMissing(loc) ? '不足情報あり' : '不足情報なし');
-      placeMarker(loc);
-    });
-
-    // UI 反映
-    monthOptions = Array.from(monthSet).sort().reverse();
-    urgencyOptions = ['高', '中', '低', 'その他'];
-    statusOptions = ['報告状態', '作業前状態', '作業後状態', '完了状態'];
-    missingOptions = ['不足情報あり', '不足情報なし'];
-
-    selectedMonths = new Set(monthOptions);
-    selectedUrgencies = new Set(urgencyOptions);
-    selectedStatuses = new Set(statusOptions);
-    selectedMissing = new Set(missingOptions);
   }
 
   // get_locationsから取得した文字列をデコードする関数
@@ -271,30 +183,93 @@
     return typeof n === 'number' && !Number.isNaN(n);
   }
 
-  // 先頭の画像が非表示にされた時のサムネイルの処理
-  function updateCurrentImg(idx: number) {
-    if (!modalImages.length) {
-      currentImg = null;
-      modalIndex = 0;
-      return;
+  // マーカーの生成
+  function placeMarker(loc: ApiLocation) {
+    if (!map) return;
+
+    if (!isValidCoord(loc.latitude) || !isValidCoord(loc.longitude)) {
+      console.log('緯度経度がNullのためスキップ:', loc.msg_id);
+      return; // ★ NULL レコードはここで弾く
     }
-    const norm = ((idx % modalImages.length) + modalImages.length) % modalImages.length;
-    modalIndex = norm; // Splide の currentSlide も更新
-    currentImg = modalImages[norm];
+
+    const status = normalizeStatus(loc.status ?? '');
+    const style = getUrgencyStyle(loc.urgency);
+    const pin = new google.maps.marker.PinElement({
+      background: style.bg,
+      borderColor: style.borderColor,
+      glyph: style.glyph,
+      glyphColor: '#fff',
+      scale: style.scale
+    });
+    const marker = new google.maps.marker.AdvancedMarkerElement({
+      map,
+      position: { lat: loc.latitude, lng: loc.longitude },
+      content: pin.element,
+      // マーカーのホバーで出てくる内容（msg_idは消せない）
+      title: `${loc.msg_id} (${loc.status})`
+    });
+    // コンポーネントをマウントするためのコンテナを作成
+    const container = document.createElement('div');
+
+    // Info-Windowのコンポーネントをマウント
+    mount(InfoWindowComponent, {
+      target: container,
+      props: {
+        instruction: loc.instruction ?? '不明',
+        status: loc.status ?? '不明',
+        msgId: loc.msg_id,
+        onOpen: ({ msgId }: { msgId: number }) =>
+          window.dispatchEvent(new CustomEvent('open-acc', { detail: msgId }))
+      }
+    });
+    // InfoWindowを生成
+    const iw = new google.maps.InfoWindow({ content: container });
+
+    // マーカークリック時の動作
+    marker.addListener('click', () => {
+      // 開かれているinfowindowがあれば閉じる
+      currentInfoWindow?.close();
+      iw.open(map!, marker);
+      currentInfoWindow = iw;
+      map!.panTo(marker.position as google.maps.LatLng);
+    });
+    const idx = urgencyIndex(loc.urgency ?? '不明');
+    if (!markers[idx]) markers[idx] = [];
+    markers[idx].push(marker);
   }
 
-  $: if (map) {
-    // 全部非表示
-    markers.flat().forEach((m) => (m.map = null));
+  // マーカーを全てクリアする関数
+  function clearMarkers() {
+    markers.flat().forEach((mk) => (mk.map = null)); // 既存マーカー解除
+    markers = [];
+  }
 
-    // msg_id のハッシュを作って判定
-    const visibleIds = new Set(filteredLocations.map((l) => String(l.msg_id)));
+  function filterMakers(data: ApiLocation[]) {
+    // Set はユニーク集合保持が簡単  :contentReference[oaicite:4]{index=4}
+    const monthSet = new Set<string>();
+    const urgencySet = new Set<string>();
+    const statusSet = new Set<string>();
+    const missingSet = new Set<string>();
 
-    markers.flat().forEach((m) => {
-      // title 先頭に埋め込んだ msg_id を “文字列のまま” 取得
-      const id = m.title?.split(' ')[0] ?? '';
-      if (visibleIds.has(id)) m.map = map;
+    data.forEach((loc) => {
+      const m = toMonth(loc.instruction);
+      if (m) monthSet.add(m);
+      urgencySet.add(urgencyLabel(loc.urgency ?? '不明'));
+      statusSet.add(statusLabel(loc.operation_status));
+      missingSet.add(hasMissing(loc) ? '不足情報あり' : '不足情報なし');
+      placeMarker(loc);
     });
+
+    // UI 反映
+    monthOptions = Array.from(monthSet).sort().reverse();
+    urgencyOptions = ['高', '中', '低', '不明'];
+    statusOptions = ['報告中', '作業依頼中', '作業報告中', '完了', '未処理'];
+    missingOptions = ['不足情報あり', '不足情報なし'];
+
+    selectedMonths = new Set(monthOptions);
+    selectedUrgencies = new Set(urgencyOptions);
+    selectedStatuses = new Set(statusOptions);
+    selectedMissing = new Set(missingOptions);
   }
 
   // 受信 instruction → "YYYY-MM" へ変換
@@ -316,6 +291,18 @@
     return lackInstr || lackLat || lackImages;
   }
 
+  // 先頭の画像が非表示にされた時のサムネイルの処理
+  function updateCurrentImg(idx: number) {
+    if (!modalImages.length) {
+      currentImg = null;
+      modalIndex = 0;
+      return;
+    }
+    const norm = ((idx % modalImages.length) + modalImages.length) % modalImages.length;
+    modalIndex = norm; // Splide の currentSlide も更新
+    currentImg = modalImages[norm];
+  }
+
   // フィルター機能の条件
   $: filteredLocations = locations.filter((l) => {
     // チェックボックスが全 OFF の軸は全部除外
@@ -327,7 +314,7 @@
     // 各項目ごとの判定
     const m = toMonth(l.instruction); // "YYYY-MM" or null
     const monthHit = m !== null && selectedMonths.has(m);
-    const urgencyHit = selectedUrgencies.has(urgencyLabel(l.urgency));
+    const urgencyHit = selectedUrgencies.has(urgencyLabel(l.urgency ?? '不明'));
     const statusHit = selectedStatuses.has(statusLabel(l.operation_status));
     const missingHit = selectedMissing.has(hasMissing(l) ? '不足情報あり' : '不足情報なし');
 
@@ -351,7 +338,7 @@
     return urg === '低' ? 'low' : urg === '中' ? 'medium' : urg === '高' ? 'high' : '';
   }
 
-  // 作業状況クラス＆文字を返す（operation_status: '1'→報告, '2'→作業, '3'→完了）
+  // 作業状況クラス＆文字を返す
   function workStatusClass(code: string) {
     return code === '0'
       ? 'report'
@@ -367,9 +354,9 @@
     return code === '0'
       ? '報'
       : code === '1'
-        ? '作'
+        ? '依'
         : code === '2'
-          ? '済'
+          ? '作'
           : code === '3'
             ? '完'
             : '?';
@@ -399,6 +386,18 @@
     const visibleDiscovery = loc.discovery_images?.filter((i) => i.deleted === '0').length ?? 0;
     if (visibleDiscovery === 0) reasons.push('報告写真');
     return reasons;
+  }
+
+  $: if (map) {
+    // 全部非表示
+    markers.flat().forEach((m) => (m.map = null));
+    // msg_id のハッシュを作って判定
+    const visibleIds = new Set(filteredLocations.map((l) => String(l.msg_id)));
+    markers.flat().forEach((m) => {
+      // title 先頭に埋め込んだ msg_id を “文字列のまま” 取得
+      const id = m.title?.split(' ')[0] ?? '';
+      if (visibleIds.has(id)) m.map = map;
+    });
   }
 
   // 完了ボタンが押されたら、completedにFalseをセットする
@@ -464,11 +463,20 @@
     return arr.filter((img) => img.deleted === '0').length;
   }
   // サムネイルをクリックしたら呼ぶ
-  function openModal(images: ImageRec[], url: string, id: number) {
-    modalImages = images;
+  function openModal(images: ImageRec[] | undefined, url: string, id: number) {
+    const imgArr = images ?? [];
+    modalImages = imgArr;
     modalMsgId = id;
-    const found = images.findIndex((img) => img.image_url === url);
+    const found = imgArr.findIndex((img) => img.image_url === url);
     updateCurrentImg(found >= 0 ? found : 0);
+  }
+
+  // ★ サムネイルクリック時のキーボード操作
+  function openModalKey(e: KeyboardEvent, images: ImageRec[] | undefined, url: string, id: number) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openModal(images, url, id);
+    }
   }
   // モーダル背景を閉じる
   function closeModal() {
@@ -614,7 +622,7 @@
         <summary class="header">
           <div class="header-top">
             <!-- 緊急度バッヂ -->
-            <span class="badge urgency {urgencyClass(loc.urgency)}">
+            <span class="badge urgency {urgencyClass(loc.urgency ?? '?')}">
               {loc.urgency}
             </span>
             <!-- 作業状況バッヂ -->
@@ -657,7 +665,7 @@
           <!-- 報告（発見）写真 -->
           <div class="photo-block">
             <span class="photo-label">報告写真</span>
-            {#if loc.discovery_images?.length > 0}
+            {#if (loc.discovery_images?.length ?? 0) > 0}
               {#if firstVisible(loc.discovery_images)}
                 <span
                   class="thumb-container"
@@ -704,7 +712,7 @@
           <br />
           <div class="photo-block">
             <span class="photo-label">作業前写真</span><br />
-            {#if loc.before_images?.length > 0}
+            {#if (loc.before_images?.length ?? 0) > 0}
               {#if firstVisible(loc.before_images)}
                 <span
                   class="thumb-container"
@@ -751,7 +759,7 @@
           <br />
           <div class="photo-block">
             <span class="photo-label">作業後写真</span><br />
-            {#if loc.after_images?.length > 0}
+            {#if (loc.after_images?.length ?? 0) > 0}
               {#if firstVisible(loc.after_images)}
                 <span
                   class="thumb-container"
@@ -866,7 +874,6 @@
             drag: true,
             autoHeight: true
           }}
-          on:move={(e) => updateCurrentImg(e.detail.newIndex)}
           bind:currentSlide={modalIndex}
         >
           <SplideTrack>
